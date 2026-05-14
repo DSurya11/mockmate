@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.next/
+.env
+*.log
+uploads/
+information/
+voices/*.onnx
+*.wav
+*.webm
+testdata/*.pdf
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.DS_Store
+Thumbs.db

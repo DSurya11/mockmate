@@ -1,0 +1,146 @@
+.page {
+  min-height: 100vh;
+  padding: 32px;
+  position: relative;
+  z-index: 1;
+}
+
+.backBtn {
+  margin-bottom: 24px;
+}
+
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 48px;
+}
+
+.header h1 {
+  font-size: 2.2rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #818cf8, #a78bfa, #c4b5fd);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 8px;
+}
+
+.header p {
+  color: var(--text-secondary);
+  font-size: 1rem;
+}
+
+.section {
+  margin-bottom: 40px;
+}
+
+.sectionLabel {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 16px;
+}
+
+.roleGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.roleCard {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 200ms;
+  font-family: var(--font-family);
+  text-align: left;
+}
+
+.roleCard:hover {
+  border-color: var(--border-medium);
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+
+.roleActive {
+  border-color: var(--accent-primary) !important;
+  background: rgba(99, 102, 241, 0.1) !important;
+  color: var(--accent-primary-hover) !important;
+  box-shadow: 0 0 20px rgba(99, 102, 241, 0.15);
+}
+
+.roleIcon {
+  font-size: 1.3rem;
+}
+
+.typeGrid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+
+.typeCard {
+  text-align: center;
+  padding: 20px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all 200ms;
+  font-family: var(--font-family);
+  color: var(--text-secondary);
+}
+
+.typeCard:hover {
+  border-color: var(--border-medium);
+  transform: translateY(-2px);
+}
+
+.typeActive {
+  border-color: var(--accent-primary) !important;
+  background: rgba(99, 102, 241, 0.1) !important;
+  box-shadow: 0 0 20px rgba(99, 102, 241, 0.15);
+}
+
+.typeIcon {
+  font-size: 1.8rem;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.typeCard h3 {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.typeCard p {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.startBtn {
+  margin-top: 16px;
+  padding: 18px;
+  font-size: 1.05rem;
+}
+
+@media (max-width: 768px) {
+  .roleGrid { grid-template-columns: repeat(2, 1fr); }
+  .typeGrid { grid-template-columns: repeat(2, 1fr); }
+}

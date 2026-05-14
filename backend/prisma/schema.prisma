@@ -1,0 +1,190 @@
+// Prisma schema for AI Interview Evaluation Platform
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CANDIDATE
+  RECRUITER
+  ADMIN
+}
+
+enum InterviewStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum InterviewType {
+  TECHNICAL
+  HR
+  DSA
+  SYSTEM_DESIGN
+  BEHAVIORAL
+  MIXED
+}
+
+enum QuestionCategory {
+  TECHNICAL
+  HR
+  DSA
+  SYSTEM_DESIGN
+  BEHAVIORAL
+}
+
+enum QuestionDifficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+model User {
+  id            String      @id @default(uuid()) @db.Uuid
+  name          String
+  email         String      @unique
+  passwordHash  String      @map("password_hash")
+  role          UserRole    @default(CANDIDATE)
+  avatarUrl     String?     @map("avatar_url")
+  isActive      Boolean     @default(true) @map("is_active")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  resumes       Resume[]
+  sessions      Session[]
+  candidateInterviews Interview[] @relation("CandidateInterviews")
+  recruiterInterviews Interview[] @relation("RecruiterInterviews")
+  analytics     Analytics[]
+
+  @@map("users")
+}
+
+model Resume {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  fileName    String   @map("file_name")
+  fileUrl     String   @map("file_url")
+  fileSize    Int      @map("file_size")
+  parsedData  Json?    @map("parsed_data")
+  rawText     String?  @map("raw_text")
+  atsScore    Float?   @map("ats_score")
+  aiFeedback  Json?    @map("ai_feedback")
+  uploadedAt  DateTime @default(now()) @map("uploaded_at")
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("resumes")
+}
+
+model Session {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  refreshTokenHash String   @unique @map("refresh_token_hash")
+  previousRefreshTokenHash String? @map("previous_refresh_token_hash")
+  rotatedAt        DateTime? @map("rotated_at")
+  userAgent        String?  @map("user_agent")
+  ipAddress        String?  @map("ip_address")
+  expiresAt        DateTime @map("expires_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model Interview {
+  id             String          @id @default(uuid()) @db.Uuid
+  candidateId    String          @map("candidate_id") @db.Uuid
+  recruiterId    String?         @map("recruiter_id") @db.Uuid
+  jobRole        String          @map("job_role")
+  type           InterviewType   @default(MIXED)
+  status         InterviewStatus @default(SCHEDULED)
+  totalScore     Float?          @map("total_score")
+  scoreBreakdown Json?           @map("score_breakdown")
+  roomId         String?         @unique @map("room_id")
+  startedAt      DateTime?       @map("started_at")
+  endedAt        DateTime?       @map("ended_at")
+  report         Json?           @map("report")
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  candidate      User            @relation("CandidateInterviews", fields: [candidateId], references: [id])
+  recruiter      User?           @relation("RecruiterInterviews", fields: [recruiterId], references: [id])
+  questions      Question[]
+
+  @@index([candidateId])
+  @@index([recruiterId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("interviews")
+}
+
+model Question {
+  id           String             @id @default(uuid()) @db.Uuid
+  interviewId  String             @map("interview_id") @db.Uuid
+  questionText String             @map("question_text")
+  category     QuestionCategory   @default(TECHNICAL)
+  difficulty   QuestionDifficulty @default(MEDIUM)
+  orderNum     Int                @map("order_num")
+  idealAnswer  String?            @map("ideal_answer")
+  createdAt    DateTime           @default(now()) @map("created_at")
+
+  interview    Interview          @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  answer       Answer?
+
+  @@index([interviewId])
+  @@map("questions")
+}
+
+model Answer {
+  id                 String   @id @default(uuid()) @db.Uuid
+  questionId         String   @unique @map("question_id") @db.Uuid
+  transcript         String?
+  audioUrl           String?  @map("audio_url")
+  technicalScore     Float?   @map("technical_score")
+  communicationScore Float?   @map("communication_score")
+  confidenceScore    Float?   @map("confidence_score")
+  overallScore       Float?   @map("overall_score")
+  aiFeedback         Json?    @map("ai_feedback")
+  durationSeconds    Int?     @map("duration_seconds")
+  fillerWordCount    Int?     @map("filler_word_count")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  question           Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@map("answers")
+}
+
+model Analytics {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  metrics    Json
+  periodDate DateTime @map("period_date")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, periodDate])
+  @@index([userId])
+  @@map("analytics")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  action    String
+  resource  String
+  details   String?
+  ipAddress String?  @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("audit_logs")
+}
