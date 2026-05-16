@@ -23,6 +23,9 @@ import adminRoutes from './routes/admin';
 import ttsRoutes from './routes/tts';
 import transcriptionRoutes from './routes/transcription';
 
+// Start background workers
+import './workers/queues';
+
 const app = express();
 const server = http.createServer(app);
 
