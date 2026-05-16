@@ -1,41 +1,37 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
-import { api, type Interview } from "@/lib/mock-api";
-import { Button } from "@/components/ui-kit/Button";
-import { ScoreRing } from "@/components/charts/Charts";
-import { StatusDot } from "./dashboard.index";
+import { Link } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react'
+import { api, type Interview } from '@/lib/mock-api'
+import { Button } from '@/components/ui-kit/Button'
+import { ScoreRing } from '@/components/charts/Charts'
+import { StatusDot } from './dashboard.index'
 
-export const Route = createFileRoute("/dashboard/interviews")({
-  component: InterviewsTab,
-});
-
-function InterviewsTab() {
-  const [items, setItems] = useState<Interview[] | null>(null);
-  const [filter, setFilter] = useState<"all" | "completed" | "in_progress" | "scheduled" | "cancelled">("all");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export default function InterviewsTab() {
+  const [items, setItems] = useState<Interview[] | null>(null)
+  const [filter, setFilter] = useState<'all' | 'completed' | 'in_progress' | 'scheduled' | 'cancelled'>('all')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const loadItems = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    setLoading(true)
+    setError(null)
     try {
-      const data = await api.getInterviews();
-      setItems(data);
+      const data = await api.getInterviews()
+      setItems(data)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load interviews");
+      setError(err instanceof Error ? err.message : 'Failed to load interviews')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  }, []);
+  }, [])
 
   useEffect(() => {
-    loadItems();
-  }, [loadItems]);
+    loadItems()
+  }, [loadItems])
 
-  const filtered = (items ?? []).filter((i) => filter === "all" || i.status === filter);
+  const filtered = (items ?? []).filter((i) => filter === 'all' || i.status === filter)
 
   if (loading && !items) {
-    return <SkeletonList />;
+    return <SkeletonList />
   }
 
   return (
@@ -53,17 +49,17 @@ function InterviewsTab() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {(["all", "completed", "in_progress", "scheduled", "cancelled"] as const).map((f) => (
+        {(['all', 'completed', 'in_progress', 'scheduled', 'cancelled'] as const).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
             className={`rounded-full border px-3 py-1 text-xs capitalize transition-colors ${
               filter === f
-                ? "border-primary/50 bg-primary/10 text-foreground"
-                : "border-border bg-elevated/40 text-muted-foreground hover:text-foreground"
+                ? 'border-primary/50 bg-primary/10 text-foreground'
+                : 'border-border bg-elevated/40 text-muted-foreground hover:text-foreground'
             }`}
           >
-            {f.replace("_", " ")}
+            {f.replace('_', ' ')}
           </button>
         ))}
       </div>
@@ -97,8 +93,7 @@ function InterviewsTab() {
             {filtered.map((i) => (
               <Link
                 key={i.id}
-                to="/interview/$id"
-                params={{ id: i.id }}
+                to={`/interview/${i.id}`}
                 className="grid grid-cols-2 items-center gap-4 px-5 py-4 transition-colors hover:bg-elevated/50 md:grid-cols-[1.5fr_1fr_1fr_120px_120px]"
               >
                 <div className="min-w-0">
@@ -108,14 +103,14 @@ function InterviewsTab() {
                 <div className="hidden text-sm text-foreground/80 md:block">{i.interviewType}</div>
                 <div className="hidden text-sm text-muted-foreground md:block">
                   {new Date(i.createdAt).toLocaleDateString(undefined, {
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric",
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
                   })}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <StatusDot status={i.status} />{" "}
-                  <span className="capitalize">{i.status.replace("_", " ")}</span>
+                  <StatusDot status={i.status} />{' '}
+                  <span className="capitalize">{i.status.replace('_', ' ')}</span>
                 </div>
                 <div className="flex items-center justify-end">
                   {i.score != null ? (
@@ -130,7 +125,7 @@ function InterviewsTab() {
         </div>
       )}
     </div>
-  );
+  )
 }
 
 function SkeletonList() {
@@ -149,7 +144,7 @@ function SkeletonList() {
         </div>
       ))}
     </div>
-  );
+  )
 }
 
 function EmptyState() {
@@ -168,5 +163,5 @@ function EmptyState() {
         </Link>
       </div>
     </div>
-  );
+  )
 }

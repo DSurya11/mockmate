@@ -7,7 +7,7 @@ type Resume = {
   uploadedAt: string;
   size: number;
   atsScore: number | null;
-  status: "pending" | "analyzing" | "ready";
+  status: "pending" | "analyzing" | "ready" | "error";
   summary?: string;
   skills?: string[];
   insights?: { strengths: string[]; gaps: string[] };
@@ -149,7 +149,7 @@ export const api = {
       size: r.fileSize,
       uploadedAt: r.uploadedAt,
       atsScore: r.atsScore,
-      status: (r.atsScore !== null ? "ready" : "pending") as Resume["status"],
+      status: (r.atsScore !== null ? "ready" : r.aiFeedback?.status === "error" ? "error" : "pending") as Resume["status"],
       summary: r.aiFeedback?.summary || undefined,
       skills: r.parsedData?.tech_stack || r.parsedData?.skills || [],
       insights: r.aiFeedback ? {

@@ -1,57 +1,51 @@
-import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useState } from "react";
-import { api } from "@/lib/mock-api";
-import { Button } from "@/components/ui-kit/Button";
-import { Field } from "@/components/ui-kit/Field";
-
-export const Route = createFileRoute("/dashboard/practice")({
-  component: PracticeTab,
-});
+import { Link, useNavigate } from 'react-router-dom'
+import { useState } from 'react'
+import { api } from '@/lib/mock-api'
+import { Button } from '@/components/ui-kit/Button'
+import { Field } from '@/components/ui-kit/Field'
 
 const ROLES = [
-  "Senior Frontend Engineer", "Staff Software Engineer", "Backend Engineer",
-  "Full-Stack Engineer", "Engineering Manager", "Product Designer", "Product Manager",
-  "DevOps Engineer", "Data Scientist", "Machine Learning Engineer",
-  "iOS Developer", "Android Developer", "QA Engineer", "Site Reliability Engineer"
-];
+  'Senior Frontend Engineer', 'Staff Software Engineer', 'Backend Engineer',
+  'Full-Stack Engineer', 'Engineering Manager', 'Product Designer', 'Product Manager',
+  'DevOps Engineer', 'Data Scientist', 'Machine Learning Engineer',
+  'iOS Developer', 'Android Developer', 'QA Engineer', 'Site Reliability Engineer',
+]
 const TYPES = [
-  { id: "Technical", desc: "Coding patterns, architecture, debugging" },
-  { id: "Behavioral", desc: "Leadership, conflict, ownership stories" },
-  { id: "System Design", desc: "Distributed systems, scaling, trade-offs" },
-  { id: "HR", desc: "Culture fit, expectations, career goals" },
-  { id: "DSA", desc: "Data structures, algorithms, complexity" },
-  { id: "MIXED", desc: "Blend of technical, behavioral, and design" },
-];
+  { id: 'Technical', desc: 'Coding patterns, architecture, debugging' },
+  { id: 'Behavioral', desc: 'Leadership, conflict, ownership stories' },
+  { id: 'System Design', desc: 'Distributed systems, scaling, trade-offs' },
+  { id: 'HR', desc: 'Culture fit, expectations, career goals' },
+  { id: 'DSA', desc: 'Data structures, algorithms, complexity' },
+  { id: 'MIXED', desc: 'Blend of technical, behavioral, and design' },
+]
 
-function PracticeTab() {
-  const navigate = useNavigate();
-  const [role, setRole] = useState(ROLES[0]);
-  const [customRole, setCustomRole] = useState("");
-  const [type, setType] = useState<string>(TYPES[0].id);
-  const [submitting, setSubmitting] = useState(false);
-  const [saveVideo, setSaveVideo] = useState(false);
+export default function PracticeTab() {
+  const navigate = useNavigate()
+  const [role, setRole] = useState(ROLES[0])
+  const [customRole, setCustomRole] = useState('')
+  const [type, setType] = useState<string>(TYPES[0].id)
+  const [submitting, setSubmitting] = useState(false)
+  const [saveVideo, setSaveVideo] = useState(false)
 
   async function start() {
-    let dirHandle = null;
+    let dirHandle = null
     if (saveVideo) {
       try {
-        dirHandle = await (window as any).showDirectoryPicker({
-          mode: "readwrite"
-        });
+        dirHandle = await (window as any).showDirectoryPicker({ mode: 'readwrite' })
       } catch (e) {
-        return; // user cancelled
+        return // user cancelled
       }
     }
-    setSubmitting(true);
+    setSubmitting(true)
     try {
-      const finalRole = customRole.trim() || role;
-      const { id } = await api.createInterview({ jobRole: finalRole, interviewType: type });
+      const finalRole = customRole.trim() || role
+      const { id } = await api.createInterview({ jobRole: finalRole, interviewType: type })
       if (dirHandle) {
-        (window as any).__videoDirHandle = dirHandle;
+        (window as any).__videoDirHandle = dirHandle
       }
-      navigate({ to: "/interview/$id", params: { id } });
+      navigate(`/interview/${id}`)
     } finally {
-      setSubmitting(false);
+      setSubmitting(false)
     }
   }
 
@@ -72,11 +66,11 @@ function PracticeTab() {
               {ROLES.map((r) => (
                 <button
                   key={r}
-                  onClick={() => { setRole(r); setCustomRole(""); }}
+                  onClick={() => { setRole(r); setCustomRole('') }}
                   className={`rounded-full border px-3 py-1.5 text-xs transition-all ${
                     role === r && !customRole
-                      ? "border-primary/60 bg-primary/15 text-foreground shadow-[0_0_0_3px_oklch(0.72_0.18_255_/_0.12)]"
-                      : "border-border bg-elevated/40 text-muted-foreground hover:text-foreground"
+                      ? 'border-primary/60 bg-primary/15 text-foreground shadow-[0_0_0_3px_oklch(0.72_0.18_255_/_0.12)]'
+                      : 'border-border bg-elevated/40 text-muted-foreground hover:text-foreground'
                   }`}
                 >
                   {r}
@@ -94,22 +88,22 @@ function PracticeTab() {
             <h3 className="text-sm font-medium tracking-tight">2 · Pick a format</h3>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               {TYPES.map((t) => {
-                const active = type === t.id;
+                const active = type === t.id
                 return (
                   <button
                     key={t.id}
                     onClick={() => setType(t.id)}
                     className={`group relative overflow-hidden rounded-xl border p-4 text-left transition-all ${
                       active
-                        ? "border-primary/60 bg-primary/10 shadow-[0_0_0_3px_oklch(0.72_0.18_255_/_0.12)]"
-                        : "border-border bg-elevated/40 hover:border-border-strong"
+                        ? 'border-primary/60 bg-primary/10 shadow-[0_0_0_3px_oklch(0.72_0.18_255_/_0.12)]'
+                        : 'border-border bg-elevated/40 hover:border-border-strong'
                     }`}
                   >
                     {active && <span className="absolute right-3 top-3 grid h-5 w-5 place-items-center rounded-full bg-gradient-primary text-[10px] text-primary-foreground">✓</span>}
                     <div className="text-sm font-medium">{t.id}</div>
                     <div className="mt-1 text-xs text-muted-foreground">{t.desc}</div>
                   </button>
-                );
+                )
               })}
             </div>
           </section>
@@ -152,7 +146,7 @@ function PracticeTab() {
         </aside>
       </div>
     </div>
-  );
+  )
 }
 
 function Row({ k, v }: { k: string; v: string }) {
@@ -161,5 +155,5 @@ function Row({ k, v }: { k: string; v: string }) {
       <span className="text-muted-foreground">{k}</span>
       <span className="font-medium">{v}</span>
     </div>
-  );
+  )
 }

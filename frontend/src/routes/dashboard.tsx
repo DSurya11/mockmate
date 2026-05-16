@@ -1,45 +1,35 @@
-import { createFileRoute, Outlet, Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
-import { useAuth } from "@/stores/auth";
-import { Logo } from "@/components/ui-kit/Logo";
-import { Button } from "@/components/ui-kit/Button";
-import { cn } from "@/lib/utils";
-
-export const Route = createFileRoute("/dashboard")({
-  head: () => ({
-    meta: [
-      { title: "Dashboard — MockMate" },
-      { name: "description", content: "Your interview workspace: overview, interviews, resumes, practice and analytics." },
-    ],
-  }),
-  component: DashboardLayout,
-});
+import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect } from 'react'
+import { useAuth } from '@/stores/auth'
+import { Logo } from '@/components/ui-kit/Logo'
+import { Button } from '@/components/ui-kit/Button'
+import { cn } from '@/lib/utils'
 
 const TABS: { to: string; label: string; exact?: boolean }[] = [
-  { to: "/dashboard", label: "Overview", exact: true },
-  { to: "/dashboard/interviews", label: "Interviews" },
-  { to: "/dashboard/resumes", label: "Resumes" },
-  { to: "/dashboard/practice", label: "Practice" },
-  { to: "/dashboard/analytics", label: "Analytics" },
-];
+  { to: '/dashboard', label: 'Overview', exact: true },
+  { to: '/dashboard/interviews', label: 'Interviews' },
+  { to: '/dashboard/resumes', label: 'Resumes' },
+  { to: '/dashboard/practice', label: 'Practice' },
+  { to: '/dashboard/analytics', label: 'Analytics' },
+]
 
-function DashboardLayout() {
-  const { user, status, logout } = useAuth();
-  const navigate = useNavigate();
-  const location = useLocation();
+export default function DashboardLayout() {
+  const { user, status, logout } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
 
   useEffect(() => {
-    if (status === "unauthenticated") navigate({ to: "/login" });
-  }, [status, navigate]);
+    if (status === 'unauthenticated') navigate('/login')
+  }, [status, navigate])
 
-  if (status === "loading" || status === "idle") {
+  if (status === 'loading' || status === 'idle') {
     return (
       <div className="grid min-h-screen place-items-center text-muted-foreground text-sm">
         <div className="flex items-center gap-3"><span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> Loading workspace…</div>
       </div>
-    );
+    )
   }
-  if (!user) return null;
+  if (!user) return null
 
   return (
     <div className="relative min-h-screen">
@@ -51,36 +41,36 @@ function DashboardLayout() {
             <Link to="/dashboard"><Logo /></Link>
             <nav className="hidden items-center gap-1 md:flex">
               {TABS.map((t) => {
-                const active = t.exact ? location.pathname === t.to : location.pathname.startsWith(t.to);
+                const active = t.exact ? location.pathname === t.to : location.pathname.startsWith(t.to)
                 return (
                   <Link
                     key={t.to}
-                    to={t.to as any}
+                    to={t.to}
                     className={cn(
-                      "relative rounded-md px-3 py-1.5 text-sm transition-colors",
-                      active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+                      'relative rounded-md px-3 py-1.5 text-sm transition-colors',
+                      active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
                     )}
                   >
                     {t.label}
                     {active && <span className="absolute inset-x-2 -bottom-[15px] h-px bg-gradient-primary" />}
                   </Link>
-                );
+                )
               })}
             </nav>
           </div>
           <div className="flex items-center gap-3">
             <Link to="/interview/new"><Button size="sm">New interview</Button></Link>
-            <UserMenu name={user.name} email={user.email} onLogout={() => { logout(); navigate({ to: "/" }); }} />
+            <UserMenu name={user.name} email={user.email} onLogout={() => { logout(); navigate('/') }} />
           </div>
         </div>
         {/* mobile tabs */}
         <div className="md:hidden border-t border-border overflow-x-auto">
           <div className="flex min-w-max gap-1 px-4 py-2">
             {TABS.map((t) => {
-              const active = t.exact ? location.pathname === t.to : location.pathname.startsWith(t.to);
+              const active = t.exact ? location.pathname === t.to : location.pathname.startsWith(t.to)
               return (
-                <Link key={t.to} to={t.to as any} className={cn("rounded-md px-3 py-1.5 text-xs", active ? "bg-elevated text-foreground" : "text-muted-foreground")}>{t.label}</Link>
-              );
+                <Link key={t.to} to={t.to} className={cn('rounded-md px-3 py-1.5 text-xs', active ? 'bg-elevated text-foreground' : 'text-muted-foreground')}>{t.label}</Link>
+              )
             })}
           </div>
         </div>
@@ -90,11 +80,11 @@ function DashboardLayout() {
         <Outlet />
       </main>
     </div>
-  );
+  )
 }
 
 function UserMenu({ name, email, onLogout }: { name: string; email: string; onLogout: () => void }) {
-  const initials = name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase();
+  const initials = name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()
   return (
     <div className="group relative">
       <button className="flex items-center gap-2.5 rounded-lg border border-border bg-elevated/60 px-2 py-1 pr-3 text-left transition-colors hover:bg-elevated">
@@ -113,6 +103,5 @@ function UserMenu({ name, email, onLogout }: { name: string; email: string; onLo
         <button onClick={onLogout} className="block w-full rounded-md px-2.5 py-2 text-left text-xs text-foreground hover:bg-elevated">Sign out</button>
       </div>
     </div>
-  );
+  )
 }
-

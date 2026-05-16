@@ -1,59 +1,55 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
-import { api, type Interview } from "@/lib/mock-api";
-import { Button } from "@/components/ui-kit/Button";
-import { useAuth } from "@/stores/auth";
-import { ScoreRing, MiniSparkline } from "@/components/charts/Charts";
+import { Link } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react'
+import { api, type Interview } from '@/lib/mock-api'
+import { Button } from '@/components/ui-kit/Button'
+import { useAuth } from '@/stores/auth'
+import { ScoreRing, MiniSparkline } from '@/components/charts/Charts'
 
 type DashboardStats = {
-  totalInterviews: number;
-  completedInterviews: number;
-  averageScore: number;
-  scoreBreakdown: { label: string; value: number }[];
-  trend: { label: string; score: number }[];
-  weakAreas: string[];
-};
+  totalInterviews: number
+  completedInterviews: number
+  averageScore: number
+  scoreBreakdown: { label: string; value: number }[]
+  trend: { label: string; score: number }[]
+  weakAreas: string[]
+}
 
-export const Route = createFileRoute("/dashboard/")({
-  component: OverviewTab,
-});
-
-function OverviewTab() {
-  const user = useAuth((s) => s.user);
-  const [data, setData] = useState<DashboardStats | null>(null);
-  const [interviews, setInterviews] = useState<Interview[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export default function OverviewTab() {
+  const user = useAuth((s) => s.user)
+  const [data, setData] = useState<DashboardStats | null>(null)
+  const [interviews, setInterviews] = useState<Interview[] | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    setLoading(true)
+    setError(null)
 
     const [analyticsResult, interviewsResult] = await Promise.allSettled([
       api.candidateAnalytics(),
       api.getInterviews(),
-    ]);
+    ])
 
-    if (analyticsResult.status === "fulfilled") setData(analyticsResult.value);
-    if (interviewsResult.status === "fulfilled") setInterviews(interviewsResult.value);
+    if (analyticsResult.status === 'fulfilled') setData(analyticsResult.value)
+    if (interviewsResult.status === 'fulfilled') setInterviews(interviewsResult.value)
 
     const failures = [analyticsResult, interviewsResult]
-      .filter((result): result is PromiseRejectedResult => result.status === "rejected")
-      .map((result) => result.reason?.message || "Unknown dashboard error");
+      .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      .map((result) => result.reason?.message || 'Unknown dashboard error')
 
     if (failures.length > 0) {
-      setError(failures.join(" · "));
+      setError(failures.join(' · '))
     }
 
-    setLoading(false);
-  }, []);
+    setLoading(false)
+  }, [])
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    loadData()
+  }, [loadData])
 
   if (loading && !data && !interviews) {
-    return <LoadingState />;
+    return <LoadingState />
   }
 
   return (
@@ -76,7 +72,7 @@ function OverviewTab() {
         <div>
           <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Overview</div>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight md:text-4xl">
-            Welcome back, {user?.name.split(" ")[0]} <span className="text-gradient">·</span>
+            Welcome back, {user?.name.split(' ')[0]} <span className="text-gradient">·</span>
           </h1>
           <p className="mt-1.5 text-sm text-muted-foreground">
             Here's how your interview prep is trending this week.
@@ -90,20 +86,20 @@ function OverviewTab() {
       <section className="grid gap-4 md:grid-cols-4">
         <StatCard
           label="Total interviews"
-          value={data?.totalInterviews ?? "—"}
-          delta={data?.totalInterviews > 0 ? "+1 this week" : "New account"}
+          value={data?.totalInterviews ?? '—'}
+          delta={data?.totalInterviews > 0 ? '+1 this week' : 'New account'}
         />
         <StatCard
           label="Completed"
-          value={data?.completedInterviews ?? "—"}
-          delta={data?.completedInterviews ? "Great progress" : "No interviews yet"}
+          value={data?.completedInterviews ?? '—'}
+          delta={data?.completedInterviews ? 'Great progress' : 'No interviews yet'}
           tone="accent"
         />
         <StatCard
           label="Average score"
-          value={data?.averageScore ? `${data.averageScore}` : "—"}
+          value={data?.averageScore ? `${data.averageScore}` : '—'}
           suffix="/100"
-          delta={data?.averageScore ? "Keep it up!" : ""}
+          delta={data?.averageScore ? 'Keep it up!' : ''}
           tone="primary"
         />
         <StatCard
@@ -172,8 +168,7 @@ function OverviewTab() {
             {(interviews ?? []).slice(0, 5).map((i) => (
               <Link
                 key={i.id}
-                to="/interview/$id"
-                params={{ id: i.id }}
+                to={`/interview/${i.id}`}
                 className="-mx-2 flex items-center justify-between gap-4 rounded-lg px-2 py-3 transition-colors hover:bg-elevated/50"
               >
                 <div className="flex items-center gap-3 min-w-0">
@@ -188,7 +183,7 @@ function OverviewTab() {
                 <div className="flex items-center gap-4">
                   {i.score != null && <ScoreRing value={i.score} size={36} />}
                   <span className="text-xs text-muted-foreground capitalize">
-                    {i.status.replace("_", " ")}
+                    {i.status.replace('_', ' ')}
                   </span>
                 </div>
               </Link>
@@ -216,7 +211,7 @@ function OverviewTab() {
         </div>
       </section>
     </div>
-  );
+  )
 }
 
 function StatCard({
@@ -226,17 +221,17 @@ function StatCard({
   delta,
   tone,
 }: {
-  label: string;
-  value: string | number;
-  suffix?: string;
-  delta?: string;
-  tone?: "primary" | "accent";
+  label: string
+  value: string | number
+  suffix?: string
+  delta?: string
+  tone?: 'primary' | 'accent'
 }) {
   return (
     <div className="surface-card relative overflow-hidden p-5">
       {tone && (
         <div
-          className={`absolute -right-8 -top-8 h-24 w-24 rounded-full blur-2xl opacity-25 ${tone === "primary" ? "bg-primary" : "bg-accent"}`}
+          className={`absolute -right-8 -top-8 h-24 w-24 rounded-full blur-2xl opacity-25 ${tone === 'primary' ? 'bg-primary' : 'bg-accent'}`}
         />
       )}
       <div className="text-xs uppercase tracking-wider text-muted-foreground">{label}</div>
@@ -246,17 +241,17 @@ function StatCard({
       </div>
       {delta && <div className="mt-2 text-xs text-muted-foreground">{delta}</div>}
     </div>
-  );
+  )
 }
 
-export function StatusDot({ status }: { status: Interview["status"] }) {
+export function StatusDot({ status }: { status: Interview['status'] }) {
   const map: Record<string, string> = {
-    completed: "bg-success",
-    in_progress: "bg-warning recording-pulse",
-    scheduled: "bg-muted-foreground",
-    cancelled: "bg-destructive/50",
-  };
-  return <span className={`h-2 w-2 rounded-full ${map[status]}`} />;
+    completed: 'bg-success',
+    in_progress: 'bg-warning recording-pulse',
+    scheduled: 'bg-muted-foreground',
+    cancelled: 'bg-destructive/50',
+  }
+  return <span className={`h-2 w-2 rounded-full ${map[status]}`} />
 }
 
 function LoadingState() {
@@ -267,5 +262,5 @@ function LoadingState() {
         Loading dashboard…
       </div>
     </div>
-  );
+  )
 }

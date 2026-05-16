@@ -1,18 +1,8 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { Button } from "@/components/ui-kit/Button";
-import { Logo } from "@/components/ui-kit/Logo";
+import { Link } from 'react-router-dom'
+import { Button } from '@/components/ui-kit/Button'
+import { Logo } from '@/components/ui-kit/Logo'
 
-export const Route = createFileRoute("/")({
-  head: () => ({
-    meta: [
-      { title: "MockMate — Practice interviews with AI that actually helps" },
-      { name: "description", content: "Realistic mock interviews, ATS resume scoring, and interview analytics — built for engineers, designers, and PMs." },
-    ],
-  }),
-  component: Landing,
-});
-
-function Landing() {
+export default function Landing() {
   return (
     <div className="relative min-h-screen overflow-hidden text-foreground">
       <div className="pointer-events-none absolute inset-0 grid-bg opacity-40" />
@@ -92,6 +82,5 @@ function Landing() {
         </div>
       </footer>
     </div>
-  );
+  )
 }
-

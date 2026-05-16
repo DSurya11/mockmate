@@ -2,6 +2,8 @@ node_modules/
 dist/
 .next/
 .env
+.env.local
+.env.*.local
 *.log
 uploads/
 information/
@@ -15,3 +17,7 @@ __pycache__/
 *.egg-info/
 .DS_Store
 Thumbs.db
+
+# Dead code from TanStack Start → Vite migration
+frontend/src/pages/
+frontend/convert-routes.cjs

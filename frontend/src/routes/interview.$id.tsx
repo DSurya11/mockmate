@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { api, type Interview } from "@/lib/mock-api";
 import { Button } from "@/components/ui-kit/Button";
@@ -14,9 +14,7 @@ type InterviewPhase =
   | "CORE_QUESTIONS"  // Phase 5 — the real interview
   | "CLOSING";         // Phase 6 — wrap up
 
-export const Route = createFileRoute("/interview/$id")({
-  component: InterviewRoom,
-});
+
 
 const QUESTION_SECONDS = 120;
 const SPEAKING_DELAY_SECONDS = 3; // Delay after AI finishes speaking before user can start answering
@@ -51,8 +49,8 @@ const INTERVIEWERS = [
   }
 ];
 
-function InterviewRoom() {
-  const { id } = Route.useParams();
+export default function InterviewRoom() {
+  const { id } = useParams();
   const navigate = useNavigate();
   const auth = useAuth();
   const [iv, setIv] = useState<Interview | null>(null);
@@ -198,7 +196,7 @@ function InterviewRoom() {
   
   // load interview
   useEffect(() => {
-    if (auth.status === "unauthenticated") navigate({ to: "/login" });
+    if (auth.status === "unauthenticated") navigate("/login");
   }, [auth.status, navigate]);
 
   useEffect(() => {

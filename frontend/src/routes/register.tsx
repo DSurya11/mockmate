@@ -1,53 +1,43 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { useAuth } from "@/stores/auth";
-import { Button } from "@/components/ui-kit/Button";
-import { Field } from "@/components/ui-kit/Field";
-import { AuthShell } from "./login";
+import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useAuth } from '@/stores/auth'
+import { Button } from '@/components/ui-kit/Button'
+import { Field } from '@/components/ui-kit/Field'
+import { AuthShell } from './login'
 
-export const Route = createFileRoute("/register")({
-  head: () => ({
-    meta: [
-      { title: "Create account — MockMate" },
-      { name: "description", content: "Start free. Practice AI-powered interviews and improve faster." },
-    ],
-  }),
-  component: RegisterPage,
-});
-
-function RegisterPage() {
-  const { register, status, user } = useAuth();
-  const navigate = useNavigate();
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [errors, setErrors] = useState<{ name?: string; email?: string; password?: string; form?: string }>({});
-  const [submitting, setSubmitting] = useState(false);
+export default function RegisterPage() {
+  const { register, status, user } = useAuth()
+  const navigate = useNavigate()
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [errors, setErrors] = useState<{ name?: string; email?: string; password?: string; form?: string }>({})
+  const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
-    if (status === "authenticated" && user) navigate({ to: "/dashboard" });
-  }, [status, user, navigate]);
+    if (status === 'authenticated' && user) navigate('/dashboard')
+  }, [status, user, navigate])
 
   async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const next: typeof errors = {};
-    if (name.trim().length < 2) next.name = "Tell us your name";
-    if (!/^\S+@\S+\.\S+$/.test(email)) next.email = "Enter a valid email";
-    if (password.length < 8) next.password = "Use at least 8 characters";
-    setErrors(next);
-    if (Object.keys(next).length) return;
-    setSubmitting(true);
+    e.preventDefault()
+    const next: typeof errors = {}
+    if (name.trim().length < 2) next.name = 'Tell us your name'
+    if (!/^\S+@\S+\.\S+$/.test(email)) next.email = 'Enter a valid email'
+    if (password.length < 8) next.password = 'Use at least 8 characters'
+    setErrors(next)
+    if (Object.keys(next).length) return
+    setSubmitting(true)
     try {
-      await register(name.trim(), email, password);
-      navigate({ to: "/dashboard" });
+      await register(name.trim(), email, password)
+      navigate('/dashboard')
     } catch (e: any) {
-      setErrors({ form: e.message });
+      setErrors({ form: e.message })
     } finally {
-      setSubmitting(false);
+      setSubmitting(false)
     }
   }
 
-  const strength = passwordStrength(password);
+  const strength = passwordStrength(password)
 
   return (
     <AuthShell title="Create your workspace" subtitle="Start free. No credit card required.">
@@ -65,30 +55,29 @@ function RegisterPage() {
         </div>
       </form>
     </AuthShell>
-  );
+  )
 }
 
 function passwordStrength(p: string) {
-  let s = 0;
-  if (p.length >= 8) s++;
-  if (/[A-Z]/.test(p)) s++;
-  if (/\d/.test(p)) s++;
-  if (/[^\w\s]/.test(p)) s++;
-  return s;
+  let s = 0
+  if (p.length >= 8) s++
+  if (/[A-Z]/.test(p)) s++
+  if (/\d/.test(p)) s++
+  if (/[^\w\s]/.test(p)) s++
+  return s
 }
 
 function PasswordMeter({ score }: { score: number }) {
-  const labels = ["Too short", "Weak", "Okay", "Strong", "Excellent"];
-  const colors = ["bg-destructive", "bg-destructive", "bg-warning", "bg-accent", "bg-success"];
+  const labels = ['Too short', 'Weak', 'Okay', 'Strong', 'Excellent']
+  const colors = ['bg-destructive', 'bg-destructive', 'bg-warning', 'bg-accent', 'bg-success']
   return (
     <div className="flex items-center gap-2">
       <div className="flex flex-1 gap-1">
         {[0, 1, 2, 3].map((i) => (
-          <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${i < score ? colors[score] : "bg-elevated"}`} />
+          <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${i < score ? colors[score] : 'bg-elevated'}`} />
         ))}
       </div>
       <span className="text-[10px] uppercase tracking-wider text-muted-foreground w-16 text-right">{labels[score]}</span>
     </div>
-  );
+  )
 }
-

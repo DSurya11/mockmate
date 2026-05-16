@@ -1,46 +1,41 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/mock-api";
-import { CompetencyBars, MiniSparkline, ScoreRing } from "@/components/charts/Charts";
-import { Button } from "@/components/ui-kit/Button";
+import { useCallback, useEffect, useState } from 'react'
+import { api } from '@/lib/mock-api'
+import { CompetencyBars, MiniSparkline, ScoreRing } from '@/components/charts/Charts'
+import { Button } from '@/components/ui-kit/Button'
 
 type AnalyticsStats = {
-  averageScore: number;
-  completedInterviews: number;
-  trend: { label: string; score: number }[];
-  scoreBreakdown: { label: string; value: number }[];
-  strengths: string[];
-  weakAreas: string[];
-};
+  averageScore: number
+  completedInterviews: number
+  trend: { label: string; score: number }[]
+  scoreBreakdown: { label: string; value: number }[]
+  strengths: string[]
+  weakAreas: string[]
+}
 
-export const Route = createFileRoute("/dashboard/analytics")({
-  component: AnalyticsTab,
-});
-
-function AnalyticsTab() {
-  const [data, setData] = useState<AnalyticsStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export default function AnalyticsTab() {
+  const [data, setData] = useState<AnalyticsStats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    setLoading(true)
+    setError(null)
     try {
-      const result = await api.candidateAnalytics();
-      setData(result);
+      const result = await api.candidateAnalytics()
+      setData(result)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load analytics");
+      setError(err instanceof Error ? err.message : 'Failed to load analytics')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  }, []);
+  }, [])
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    loadData()
+  }, [loadData])
 
   if (loading && !data) {
-    return <LoadingState />;
+    return <LoadingState />
   }
 
   return (
@@ -75,7 +70,7 @@ function AnalyticsTab() {
               Average score
             </div>
             <div className="mt-1 text-2xl font-semibold tracking-tight">
-              {data?.averageScore ?? "—"}
+              {data?.averageScore ?? '—'}
               <span className="text-sm text-muted-foreground"> / 100</span>
             </div>
             <div className="mt-1 text-xs text-success">+6 from last 30d</div>
@@ -84,7 +79,7 @@ function AnalyticsTab() {
         <div className="surface-card p-6">
           <div className="text-xs uppercase tracking-wider text-muted-foreground">Sessions</div>
           <div className="mt-1 text-2xl font-semibold tracking-tight">
-            {data?.completedInterviews ?? "—"}
+            {data?.completedInterviews ?? '—'}
           </div>
           <div className="mt-1 text-xs text-muted-foreground">completed</div>
         </div>
@@ -111,7 +106,7 @@ function AnalyticsTab() {
         <Panel title="Weak areas" tone="warning" items={data?.weakAreas ?? []} />
       </div>
     </div>
-  );
+  )
 }
 
 function Panel({
@@ -119,11 +114,11 @@ function Panel({
   tone,
   items,
 }: {
-  title: string;
-  tone: "success" | "warning";
-  items: string[];
+  title: string
+  tone: 'success' | 'warning'
+  items: string[]
 }) {
-  const dot = tone === "success" ? "bg-success" : "bg-warning";
+  const dot = tone === 'success' ? 'bg-success' : 'bg-warning'
   return (
     <div className="surface-card p-6">
       <h3 className="text-base font-medium tracking-tight">{title}</h3>
@@ -139,7 +134,7 @@ function Panel({
         ))}
       </ul>
     </div>
-  );
+  )
 }
 
 function LoadingState() {
@@ -150,5 +145,5 @@ function LoadingState() {
         Loading analytics…
       </div>
     </div>
-  );
+  )
 }

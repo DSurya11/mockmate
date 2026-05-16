@@ -1,63 +1,57 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type Resume } from "@/lib/mock-api";
-import { Button } from "@/components/ui-kit/Button";
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { api, type Resume } from '@/lib/mock-api'
+import { Button } from '@/components/ui-kit/Button'
 
-export const Route = createFileRoute("/dashboard/resumes")({
-  component: ResumesTab,
-});
-
-function ResumesTab() {
-  const [resumes, setResumes] = useState<Resume[] | null>(null);
-  const [dragOver, setDragOver] = useState(false);
-  const [uploading, setUploading] = useState<{ name: string; progress: number } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+export default function ResumesTab() {
+  const [resumes, setResumes] = useState<Resume[] | null>(null)
+  const [dragOver, setDragOver] = useState(false)
+  const [uploading, setUploading] = useState<{ name: string; progress: number } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const refresh = useCallback(async () => {
-    setError(null);
+    setError(null)
     try {
-      const next = await api.getResumes();
-      setResumes(next);
+      const next = await api.getResumes()
+      setResumes(next)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load resumes");
+      setError(err instanceof Error ? err.message : 'Failed to load resumes')
     }
-  }, []);
+  }, [])
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    refresh()
+  }, [refresh])
 
-  // Poll every 3s while any resume is pending/analyzing
+  // Poll every 3s while any resume is pending/analyzing (stop on error or ready)
   useEffect(() => {
-    if (!resumes) return;
-    const pending = resumes.some((r) => r.status !== "ready");
-    if (!pending) return;
-    const t = setInterval(refresh, 3000);
-    return () => clearInterval(t);
-  }, [resumes, refresh]);
+    if (!resumes) return
+    const pending = resumes.some((r) => r.status === 'pending' || r.status === 'analyzing')
+    if (!pending) return
+    const t = setInterval(refresh, 3000)
+    return () => clearInterval(t)
+  }, [resumes, refresh])
 
   async function handleFiles(files: FileList | null) {
-    if (!files || !files[0]) return;
-    const file = files[0];
-    setUploading({ name: file.name, progress: 0 });
-    // simulate progress
+    if (!files || !files[0]) return
+    const file = files[0]
+    setUploading({ name: file.name, progress: 0 })
     for (let p = 10; p <= 60; p += 20) {
-      await new Promise((r) => setTimeout(r, 100));
-      setUploading({ name: file.name, progress: p });
+      await new Promise((r) => setTimeout(r, 100))
+      setUploading({ name: file.name, progress: p })
     }
     try {
-      const r = await api.uploadResume(file);
-      setUploading({ name: file.name, progress: 100 });
-      setTimeout(() => setUploading(null), 300);
-      await refresh();
+      const r = await api.uploadResume(file)
+      setUploading({ name: file.name, progress: 100 })
+      setTimeout(() => setUploading(null), 300)
+      await refresh()
       api
         .analyzeResume(r.id)
         .then(refresh)
         .catch((err: unknown) =>
-          setError(err instanceof Error ? err.message : "Resume analysis failed"),
-        );
+          setError(err instanceof Error ? err.message : 'Resume analysis failed'),
+        )
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Upload failed");
+      setError(err instanceof Error ? err.message : 'Upload failed')
     }
   }
 
@@ -75,18 +69,18 @@ function ResumesTab() {
 
       <div
         onDragOver={(e) => {
-          e.preventDefault();
-          setDragOver(true);
+          e.preventDefault()
+          setDragOver(true)
         }}
         onDragLeave={() => setDragOver(false)}
         onDrop={(e) => {
-          e.preventDefault();
-          setDragOver(false);
-          handleFiles(e.dataTransfer.files);
+          e.preventDefault()
+          setDragOver(false)
+          handleFiles(e.dataTransfer.files)
         }}
         onClick={() => inputRef.current?.click()}
         className={`group surface-card relative flex cursor-pointer flex-col items-center justify-center gap-3 px-6 py-14 text-center transition-all ${
-          dragOver ? "border-primary/60 bg-primary/5 shadow-glow" : "hover:border-border-strong"
+          dragOver ? 'border-primary/60 bg-primary/5 shadow-glow' : 'hover:border-border-strong'
         }`}
       >
         <input
@@ -151,19 +145,19 @@ function ResumesTab() {
         )}
       </div>
     </div>
-  );
+  )
 }
 
 function ResumeCard({ r, onChange }: { r: Resume; onChange: () => void }) {
   async function del() {
-    await api.deleteResume(r.id);
-    onChange();
+    await api.deleteResume(r.id)
+    onChange()
   }
   async function reanalyze() {
-    await api.analyzeResume(r.id);
-    onChange();
+    await api.analyzeResume(r.id)
+    onChange()
   }
-  const sizeKb = Math.round(r.size / 1024);
+  const sizeKb = Math.round(r.size / 1024)
 
   return (
     <div className="surface-card relative overflow-hidden p-5">
@@ -182,7 +176,7 @@ function ResumeCard({ r, onChange }: { r: Resume; onChange: () => void }) {
         <ATSBadge status={r.status} score={r.atsScore} />
       </div>
 
-      {r.status === "ready" && r.insights && (
+      {r.status === 'ready' && r.insights && (
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           <div>
             <div className="mb-1.5 text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -213,19 +207,26 @@ function ResumeCard({ r, onChange }: { r: Resume; onChange: () => void }) {
         </div>
       )}
 
-      {r.status !== "ready" && (
+      {r.status === 'error' && (
+        <div className="mt-5 flex items-center gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-xs text-destructive">
+          <span className="shrink-0">⚠</span>
+          <span>Analysis failed — AI service was unavailable. Click Retry to try again.</span>
+        </div>
+      )}
+
+      {(r.status === 'pending' || r.status === 'analyzing') && (
         <div className="mt-5 flex items-center gap-3 rounded-md border border-border bg-elevated/40 px-3 py-2.5 text-xs">
           <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          {r.status === "pending"
-            ? "Queued for analysis…"
-            : "Analyzing resume — this takes a few seconds."}
+          {r.status === 'pending'
+            ? 'Queued for analysis…'
+            : 'Analyzing resume — this takes a few seconds.'}
         </div>
       )}
 
       <div className="mt-5 flex items-center justify-end gap-2">
-        {r.status === "ready" && (
+        {(r.status === 'ready' || r.status === 'error') && (
           <Button size="sm" variant="ghost" onClick={reanalyze}>
-            Re-analyze
+            {r.status === 'error' ? 'Retry' : 'Re-analyze'}
           </Button>
         )}
         <Button size="sm" variant="outline" onClick={del}>
@@ -233,26 +234,32 @@ function ResumeCard({ r, onChange }: { r: Resume; onChange: () => void }) {
         </Button>
       </div>
     </div>
-  );
+  )
 }
 
-function ATSBadge({ status, score }: { status: Resume["status"]; score: number | null }) {
-  if (status !== "ready" || score == null)
+function ATSBadge({ status, score }: { status: Resume['status']; score: number | null }) {
+  if (status === 'error')
+    return (
+      <span className="rounded-full border border-destructive/30 bg-destructive/10 px-2.5 py-1 text-[10px] uppercase tracking-wider text-destructive">
+        Failed
+      </span>
+    )
+  if (status !== 'ready' || score == null)
     return (
       <span className="rounded-full border border-border bg-elevated/60 px-2.5 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">
         Pending
       </span>
-    );
+    )
   const tone =
     score >= 85
-      ? "text-success border-success/30 bg-success/10"
+      ? 'text-success border-success/30 bg-success/10'
       : score >= 70
-        ? "text-accent border-accent/30 bg-accent/10"
-        : "text-warning border-warning/30 bg-warning/10";
+        ? 'text-accent border-accent/30 bg-accent/10'
+        : 'text-warning border-warning/30 bg-warning/10'
   return (
     <div className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${tone}`}>
       <span className="font-semibold tabular-nums">{score}</span>
       <span className="text-[10px] uppercase tracking-wider opacity-80">ATS</span>
     </div>
-  );
+  )
 }
