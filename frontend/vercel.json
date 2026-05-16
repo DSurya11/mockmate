@@ -3,5 +3,10 @@
   "outputDirectory": "dist/client",
   "framework": null,
   "installCommand": "npm install",
-  "version": 2
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
 }
