@@ -3,6 +3,17 @@
 A full-stack AI mock interview platform with conversational voice interviewers, resume analysis, real-time transcription, and analytics.
 
 ---
+## 🌐 Live Demo
+
+> ⚠️ **Note:** Render's free tier has cold starts and shared CPU, so the live demo 
+> may feel slower than local deployment — especially for TTS, Whisper transcription, 
+> and real-time voice features. For full performance, run locally.
+
+| Service | URL |
+|--------|-----|
+| Frontend | https://your-frontend.onrender.com |
+| Backend API | https://your-backend.onrender.com |
+| AI Service | https://your-ai-service.onrender.com |
 
 ## 🏗️ Architecture
 
