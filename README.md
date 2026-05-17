@@ -47,6 +47,10 @@ PostgreSQL     Queue jobs
 
 ## 🛠️ Complete Setup Guide
 
+> ⚡ **Tip:** Local deployment runs significantly faster than Render or other free-tier 
+> cloud platforms. Render's cold starts and shared CPU noticeably slow down TTS synthesis, 
+> Whisper transcription, and real-time WebSocket features. We strongly recommend running 
+> locally for the best experience.
 You can run this project in two ways: **Using Docker (Recommended)** or **Manual Local Setup**.
 
 ### Prerequisites
