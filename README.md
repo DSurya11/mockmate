@@ -14,7 +14,8 @@ A full-stack AI mock interview platform with conversational voice interviewers, 
 | Frontend | https://your-frontend.onrender.com |
 | Backend API | https://your-backend.onrender.com |
 | AI Service | https://your-ai-service.onrender.com |
-| Database (Supabase) | https://supabase.com/dashboard/project/your-project-id |
+| Database | PostgreSQL via Supabase (ap-northeast-1, Tokyo) |
+| Cache / Queue | Redis via Render (internal) |
 
 ## 🏗️ Architecture
 
