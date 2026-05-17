@@ -5,17 +5,20 @@ A full-stack AI mock interview platform with conversational voice interviewers, 
 ---
 ## 🌐 Live Demo
 
-> ⚠️ **Note:** Render's free tier has cold starts and shared CPU, so the live demo 
-> may feel slower than local deployment — especially for TTS, Whisper transcription, 
-> and real-time voice features. For full performance, run locally.
+> ⚠️ **Note:** Hosted on Render's free tier — expect 30-60s cold starts on first load.
+> TTS, Whisper transcription, and real-time voice features run significantly faster
+> on local deployment. See setup guide below for best experience.
 
 | Service | URL |
 |---------|-----|
-| Frontend | https://your-frontend.onrender.com |
-| Backend API | https://your-backend.onrender.com |
-| AI Service | https://your-ai-service.onrender.com |
+| Frontend | https://mockmate-frontend-b8z6.onrender.com |
+| Backend API | https://mockmate-backend-rd60.onrender.com |
+| AI Service | https://mockmate-ai-k2pt.onrender.com |
 | Database | PostgreSQL via Supabase (ap-northeast-1, Tokyo) |
-| Cache / Queue | Redis via Render (internal) |
+| Cache / Queue | Redis via Upstash (managed, TLS) |
+
+> ⚠️ Free-tier Supabase projects pause after 7 days of inactivity —
+> if the demo is down, the DB may need a manual wake-up.
 
 ## 🏗️ Architecture
 
