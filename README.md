@@ -26,7 +26,7 @@ A full-stack AI mock interview platform with conversational voice interviewers, 
 Browser (UI)
   │  HTTPS / WebSocket
   ▼
-Frontend (TanStack Start + Vite)  ← port 3000
+Frontend (Vite + React Router)  ← port 3000
   │  REST
   ▼
 Backend API (Express + Prisma)    ← port 5000
@@ -39,7 +39,7 @@ PostgreSQL     Queue jobs
                    │
                    ▼
       AI Service (FastAPI + Groq) ← port 8000
-        ├── Piper TTS  (WAV audio)
+        ├── gTTS  (MP3 audio)
         ├── Faster-Whisper (transcription)
         └── Groq LLM  (conversation + evaluation)
 ```
@@ -48,11 +48,11 @@ PostgreSQL     Queue jobs
 
 | Layer | Technology |
 |-------|-----------|
-| **Frontend** | TanStack Start, Vite, React 19, TailwindCSS 4, Zustand, shadcn/ui |
+| **Frontend** | Vite, React 19, React Router, TailwindCSS 4, Zustand, shadcn/ui |
 | **Backend** | Node.js, Express 5, TypeScript, Prisma ORM |
 | **AI Service** | Python 3.12, FastAPI, Groq (via OpenAI client) |
-| **TTS** | Piper TTS (offline, 3 voices: ryan, joe, amy) |
-| **Transcription** | Faster-Whisper small model (CPU, int8) |
+| **TTS** | gTTS (Google Text-to-Speech) |
+| **Transcription** | Faster-Whisper base model (CPU, int8) |
 | **Database** | PostgreSQL 16 |
 | **Cache / Queue** | Redis 7, BullMQ |
 | **Realtime** | Socket.IO (signaling) |
@@ -88,27 +88,7 @@ git clone https://github.com/DSurya11/mockmate.git
 cd mockmate
 ```
 
-#### Step 2: Download voice models (REQUIRED)
-The voice model files (`.onnx`) are **not included in the repo** because they're too large for GitHub. You must download them before running the app.
-
-**Run this command in the project root:**
-```bash
-node download_voices.js
-```
-
-This will download 6 voice model files (~360 MB total) into the `voices/` folder.
-
-**Expected output:**
-```
-✓ Downloaded en_US-ryan-high.onnx
-✓ Downloaded en_US-joe-medium.onnx
-✓ Downloaded en_US-amy-low.onnx
-✓ Downloaded en_US-john-medium.onnx
-✓ Downloaded en_US-kathleen-low.onnx
-✓ Downloaded en_US-kristin-medium.onnx
-```
-
-#### Step 3: Set your Groq API key and start
+#### Step 2: Set your Groq API key and start
 ```bash
 # Windows PowerShell
 $env:GROQ_API_KEY="your-groq-api-key-here"
@@ -120,7 +100,7 @@ GROQ_API_KEY="your-groq-api-key-here" docker compose up --build -d
 
 **Wait 30-60 seconds** for all services to start.
 
-#### Step 4: Access the services
+#### Step 3: Access the services
 - **Frontend UI:** `http://localhost:3000`
 - **Backend API:** `http://localhost:5000`
 - **AI Service:** `http://localhost:8000`
@@ -128,9 +108,6 @@ GROQ_API_KEY="your-groq-api-key-here" docker compose up --build -d
 - **Prometheus:** `http://localhost:9090`
 
 #### Troubleshooting Docker Setup
-
-**Problem: "Cannot find voice model files"**
-- Solution: Run `node download_voices.js` in the project root.
 
 **Problem: "GROQ_API_KEY not set"**
 - Solution: Make sure you set the environment variable before running `docker compose up`.
@@ -149,11 +126,10 @@ GROQ_API_KEY="your-groq-api-key-here" docker compose up --build -d
 
 If you prefer to run services individually without Docker.
 
-#### Step 0: Clone and download voice models
+#### Step 0: Clone the repository
 ```bash
 git clone https://github.com/DSurya11/mockmate.git
 cd mockmate
-node download_voices.js   # REQUIRED - downloads voice model files
 ```
 
 #### Step 1: Start Database & Redis
@@ -226,7 +202,7 @@ python -m app.main
 
 AI service should now be running on `http://localhost:8000`.
 
-#### Step 4: Frontend (TanStack Start / Vite)
+#### Step 4: Frontend (Vite + React Router)
 
 Open a **new terminal window**, then:
 
@@ -254,9 +230,6 @@ Open `http://localhost:3000` in your browser.
 - Make sure `docker compose up postgres redis -d` is running.
 - Check `DATABASE_URL` in `backend/.env` matches the connection string.
 
-**Problem: "Voice model not found"**
-- Run `node download_voices.js` from the project root.
-
 **Problem: "Module not found" errors**
 - Make sure you ran `npm install` in both `backend/` and `frontend/`.
 - For AI service, make sure you activated the virtual environment before `pip install`.
@@ -267,8 +240,8 @@ Open `http://localhost:3000` in your browser.
 
 - **Conversational AI Interviewers** — 3 distinct personas (Alex, Marcus, Sarah), each with a unique voice, tone, and specialty area, powered by Groq LLMs
 - **6-Phase Interview Flow** — Greeting → Small Talk → Agenda → Background → Core Questions → Closing, enforced by a master prompt
-- **Piper TTS Voice Synthesis** — Offline WAV audio for each interviewer response; falls back to browser `speechSynthesis`
-- **Hybrid Transcription** — Browser `SpeechRecognition` provides live word display during recording; Faster-Whisper delivers the final accurate transcript after stop
+- **gTTS Voice Synthesis** — Google Text-to-Speech for audio generation; falls back to browser `speechSynthesis`
+- **Hybrid Transcription** — Browser `SpeechRecognition` provides live word display during recording; Faster-Whisper (base model) delivers the final accurate transcript after stop
 - **4-Second Review Window** — After Whisper processes the answer, a countdown gives the candidate time to review before auto-submit
 - **Adaptive Follow-up Questions** — Backend injects AI-generated follow-ups based on answers (up to 4, capped at 12 total questions)
 - **Resume Analysis** — PDF upload, ATS scoring, skill extraction via Groq, processed via BullMQ workers
@@ -296,7 +269,7 @@ Open `http://localhost:3000` in your browser.
 | PATCH | `/api/interviews/:id/complete` | Complete + compute scores |
 | POST | `/api/interviews/conversational` | AI conversational turn (proxied to AI service) |
 | POST | `/api/interviews/questions/:id/answer` | Submit answer transcript |
-| POST | `/api/tts` | Synthesize speech (Piper TTS → WAV) |
+| POST | `/api/tts` | Synthesize speech (gTTS → MP3) |
 | POST | `/api/transcribe/` | Transcribe audio (Faster-Whisper) |
 | GET | `/api/analytics/candidate` | Candidate score analytics |
 | GET | `/api/health` | Health check |
@@ -307,13 +280,11 @@ Open `http://localhost:3000` in your browser.
 ## 📁 Project Structure
 
 ```
-├── frontend/          TanStack Start + Vite + React 19 (port 3000)
+├── frontend/          Vite + React 19 + React Router (port 3000)
 ├── backend/           Express 5 + TypeScript + Prisma (port 5000)
-├── ai-service/        FastAPI + Groq + Piper TTS + Faster-Whisper (port 8000)
+├── ai-service/        FastAPI + Groq + gTTS + Faster-Whisper (port 8000)
 ├── monitoring/        Prometheus + Grafana configs
-├── voices/            Piper TTS .onnx voice model files (downloaded via script)
 ├── .github/           CI/CD workflows
-├── download_voices.js Script to download voice models
 └── docker-compose.yml Full 8-service orchestration
 ```
 
@@ -323,7 +294,6 @@ Open `http://localhost:3000` in your browser.
 
 The following files are **NOT committed to Git** because they're too large for GitHub:
 
-- `voices/*.onnx` — Voice model binaries (~60-115 MB each)
 - `*.wav`, `*.webm` — Test audio files
 - `testdata/*.pdf` — Sample resume PDFs
 
@@ -333,17 +303,12 @@ The following files are **NOT committed to Git** because they're too large for G
 
 If you clone this repo and want to contribute:
 
-1. **Download voice models first:**
-   ```bash
-   node download_voices.js
-   ```
+1. **Never commit large binary files.** If you add new test audio files, add them to `.gitignore`.
 
-2. **Never commit large binary files.** If you add new test audio or models, add them to `.gitignore`.
-
-3. **If you accidentally stage a large file:**
+2. **If you accidentally stage a large file:**
    ```bash
    git rm --cached path/to/large-file
    git commit --amend --no-edit
    ```
 
-4. **Push safely** — Git will reject pushes with files >100 MB. If that happens, remove them from history before pushing.
+3. **Push safely** — Git will reject pushes with files >100 MB. If that happens, remove them from history before pushing.

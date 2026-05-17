@@ -7,7 +7,6 @@ dist/
 *.log
 uploads/
 information/
-voices/*.onnx
 *.wav
 *.webm
 testdata/*.pdf
