@@ -57,7 +57,7 @@ PostgreSQL     Queue jobs
 | **Cache / Queue** | Redis 7, BullMQ |
 | **Realtime** | Socket.IO (signaling) |
 | **Auth** | JWT, bcrypt, HTTP-only cookies, RBAC |
-| **DevOps** | Docker Compose, GitHub Actions, Prometheus, Grafana |
+| **DevOps** | Docker Compose, GitHub Actions CI/CD, Prometheus, Grafana |
 
 ---
 
@@ -88,17 +88,26 @@ git clone https://github.com/DSurya11/mockmate.git
 cd mockmate
 ```
 
-#### Step 2: Set your Groq API key and start
-```bash
-# Windows PowerShell
-$env:GROQ_API_KEY="your-groq-api-key-here"
-docker compose up --build -d
+#### Step 2: Create your `.env` file
 
-# Mac / Linux
-GROQ_API_KEY="your-groq-api-key-here" docker compose up --build -d
+Copy the example and fill in your credentials:
+```bash
+cp .env.example .env   # or create .env manually
 ```
 
-**Wait 30-60 seconds** for all services to start.
+Minimum required in `.env`:
+```env
+GROQ_API_KEY=your-groq-api-key-here
+JWT_SECRET=any-long-random-string
+JWT_REFRESH_SECRET=another-long-random-string
+```
+
+#### Step 3: Start all services
+```bash
+docker compose up --build -d
+```
+
+**Wait 30-60 seconds** for all services to start. The DB migration runs automatically on first boot.
 
 #### Step 3: Access the services
 - **Frontend UI:** `http://localhost:3000`
@@ -238,7 +247,7 @@ Open `http://localhost:3000` in your browser.
 
 ## ✨ Features
 
-- **Conversational AI Interviewers** — 3 distinct personas (Alex, Marcus, Sarah), each with a unique voice, tone, and specialty area, powered by Groq LLMs
+- **Conversational AI Interviewers** — 3 distinct personas (Priya, Jordan, Sarah), each with a unique voice accent and specialty area, powered by Groq LLMs
 - **6-Phase Interview Flow** — Greeting → Small Talk → Agenda → Background → Core Questions → Closing, enforced by a master prompt
 - **gTTS Voice Synthesis** — Google Text-to-Speech for audio generation; falls back to browser `speechSynthesis`
 - **Hybrid Transcription** — Browser `SpeechRecognition` provides live word display during recording; Faster-Whisper (base model) delivers the final accurate transcript after stop
@@ -287,6 +296,28 @@ Open `http://localhost:3000` in your browser.
 ├── .github/           CI/CD workflows
 └── docker-compose.yml Full 8-service orchestration
 ```
+
+---
+
+## ⚙️ CI/CD Pipeline
+
+Every push to `main` runs the full pipeline automatically:
+
+```
+git push origin main
+        ↓
+✅ backend-check   — TypeScript type check + Prisma generate
+✅ ai-service-check — pip install + import check + pytest
+✅ frontend-build  — ESLint + Vite build
+        ↓ (only if ALL pass)
+✅ deploy
+   ├─ Force-sync fork to latest code
+   ├─ Deploy Backend  → Render
+   ├─ Deploy Frontend → Render
+   └─ Deploy AI Service → Render
+```
+
+If any check fails, **nothing is deployed** — production stays on the last working code.
 
 ---
 
