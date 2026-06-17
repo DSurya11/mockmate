@@ -35,6 +35,8 @@ export default tseslint.config(
       "@typescript-eslint/no-unused-vars": "off",
       // `any` is used intentionally in several places — disable to unblock CI
       "@typescript-eslint/no-explicit-any": "off",
+      // Empty catch blocks are intentional (silencing media/audio cleanup errors)
+      "no-empty": "off",
     },
   },
 );
