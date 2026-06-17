@@ -64,28 +64,38 @@ jobs:
       - run: npm run lint
       - run: npm run build
 
-  # Docker Build
-  docker-build:
+  # Deploy — syncs fork then triggers all 3 Render services
+  deploy:
     runs-on: ubuntu-latest
     needs: [backend-check, ai-service-check, frontend-build]
     if: github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v4
-      - name: Build Backend Image
-        run: docker build -t ai-interview-backend ./backend
-      - name: Build Frontend Image
-        run: docker build -t ai-interview-frontend ./frontend
-      - name: Build AI Service Image
-        run: docker build -t ai-interview-ai-service ./ai-service
-      - run: echo "All Docker images built successfully!"
-
-  # Deploy — triggers Render only after all checks and Docker build pass
-  deploy:
-    runs-on: ubuntu-latest
-    needs: [docker-build]
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - name: Trigger Render Deploy
+      - name: Sync fork from upstream
         run: |
-          curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
-          echo "Render deploy triggered successfully."
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.FORK_SYNC_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/dantulurisurya71-byte/mockmate/merge-upstream \
+            -d '{"branch":"main"}'
+          echo "Fork synced from DSurya11/mockmate"
+
+      - name: Wait for fork sync to propagate
+        run: sleep 15
+
+      - name: Deploy Backend
+        run: |
+          curl -s -X POST "${{ secrets.RENDER_BACKEND_HOOK }}"
+          echo "Backend deploy triggered"
+
+      - name: Deploy Frontend
+        run: |
+          curl -s -X POST "${{ secrets.RENDER_FRONTEND_HOOK }}"
+          echo "Frontend deploy triggered"
+
+      - name: Deploy AI Service
+        run: |
+          curl -s -X POST "${{ secrets.RENDER_AI_HOOK }}"
+          echo "AI service deploy triggered"
+
+      - name: Done
+        run: echo "All 3 Render services deploying. Check render.com for status."
