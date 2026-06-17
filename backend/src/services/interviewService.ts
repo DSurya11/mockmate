@@ -241,7 +241,11 @@ export class InterviewService {
     return result;
   }
 
-  static async complete(id: string, user: UserContext) {
+  static async complete(id: string, user: UserContext, body?: {
+    conversationHistory?: Array<{ role: string; content: string }>;
+    jobRole?: string;
+    interviewType?: string;
+  }) {
     await this.getByIdForUser(id, user);
     const interview = await prisma.interview.findUnique({
       where: { id },
@@ -260,7 +264,7 @@ export class InterviewService {
       throw Object.assign(new Error('Interview cannot be completed'), { status: 409 });
     }
 
-    // Calculate total score from answers with real scores only
+    // Calculate total score from answers with real scores only (Q&A interview path)
     const answers = interview.questions
       .map(q => q.answer)
       .filter((a): a is NonNullable<typeof a> => Boolean(a));
@@ -277,9 +281,37 @@ export class InterviewService {
     const avgComm = avg(answers.filter(a => typeof a.communicationScore === 'number'), 'communicationScore');
     const avgConfidence = avg(answers.filter(a => typeof a.confidenceScore === 'number'), 'confidenceScore');
 
-    const totalScore = avgOverall === null
-      ? null
-      : Math.round(avgOverall * 100) / 100;
+    // Conversational interview scoring path — call AI service if conversation history is provided
+    let conversationalScore: number | null = null;
+    let scoredExchanges = 0;
+    if (body?.conversationHistory && body.conversationHistory.length > 0) {
+      try {
+        const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://mockmate-ai:8000';
+        const evalRes = await fetch(`${aiServiceUrl}/api/interview/evaluate-conversation`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            conversation_history: body.conversationHistory,
+            job_role: body.jobRole || interview.jobRole,
+            interview_type: body.interviewType || interview.type,
+          }),
+        });
+        if (evalRes.ok) {
+          const evalData = await evalRes.json() as { overallScore: number | null; scoredExchanges: number };
+          if (typeof evalData.overallScore === 'number') {
+            conversationalScore = Math.round(evalData.overallScore * 100) / 100;
+            scoredExchanges = evalData.scoredExchanges;
+          }
+        }
+      } catch (err) {
+        logger.warn({ interviewId: id, err }, 'Conversation evaluation failed — falling back to Q&A score');
+      }
+    }
+
+    // Use conversational score if available, otherwise fall back to Q&A average
+    const totalScore = conversationalScore !== null
+      ? conversationalScore
+      : (avgOverall === null ? null : Math.round(avgOverall * 100) / 100);
 
     const result = await prisma.interview.update({
       where: { id },
@@ -294,9 +326,10 @@ export class InterviewService {
           questionsAnswered: answers.length,
           scoredAnswers: scoredOverall.length,
           totalQuestions: interview.questions.length,
-          scoringStatus: scoredOverall.length === 0
-            ? 'pending'
-            : (scoredOverall.length === answers.length ? 'complete' : 'partial'),
+          scoredExchanges,
+          scoringStatus: totalScore !== null
+            ? 'complete'
+            : (scoredOverall.length === 0 ? 'pending' : 'partial'),
         },
       },
     });

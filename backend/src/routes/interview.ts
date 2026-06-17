@@ -95,7 +95,7 @@ router.patch('/:id/cancel', authenticate, validateParams(idParamSchema), async (
 
 router.patch('/:id/complete', authenticate, validateParams(idParamSchema), async (req: AuthRequest, res: Response) => {
   try {
-    const interview = await InterviewService.complete(req.params.id as string, req.user!);
+    const interview = await InterviewService.complete(req.params.id as string, req.user!, req.body);
     res.json(interview);
   } catch (error: any) {
     res.status(error.status || 500).json({ error: error.message });

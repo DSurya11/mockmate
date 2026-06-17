@@ -132,8 +132,12 @@ export const api = {
     });
     return this.getInterview(id);
   },
-  async completeInterview(id: string) {
-    await apiClient.patch<any>(`/interviews/${id}/complete`);
+  async completeInterview(id: string, payload?: {
+    conversationHistory?: Array<{ role: string; content: string }>;
+    jobRole?: string;
+    interviewType?: string;
+  }) {
+    await apiClient.patch<any>(`/interviews/${id}/complete`, payload ?? {});
     return this.getInterview(id);
   },
   async submitAnswer(interviewId: string, questionId: string, payload: { transcript: string; durationSeconds: number }) {
@@ -206,14 +210,8 @@ export const api = {
   },
 
   async getTtsAudioUrl(text: string, voice: string): Promise<string> {
-    const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/tts`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, voice }),
-      credentials: 'include'
-    });
-    if (!res.ok) throw new Error('TTS failed');
-    const blob = await res.blob();
+    // Uses postBlob so a 401 (token expiry) silently refreshes and retries
+    const blob = await apiClient.postBlob('/tts', { text, voice });
     return URL.createObjectURL(blob);
   },
 
@@ -236,27 +234,15 @@ export const api = {
     warmup_questions_asked?: number;
     exchange_count?: number;
   }) {
-    const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/interviews/conversational`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      credentials: 'include'
-    });
-    if (!res.ok) throw new Error('Conversational interview failed');
-    return res.json();
+    // Uses apiClient so a 401 (token expiry mid-interview) silently refreshes and retries
+    return apiClient.post('/interviews/conversational', payload);
   },
 
   transcribeAudio: async (audioBlob: Blob): Promise<{ text: string; language?: string; duration?: number }> => {
     const formData = new FormData();
     formData.append('file', audioBlob, 'recording.webm');
-    
-    const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/transcribe/`, {
-      method: 'POST',
-      body: formData,
-      credentials: 'include'
-    });
-    if (!res.ok) throw new Error('Transcription failed');
-    return res.json();
+    // Uses apiClient so a 401 (token expiry mid-interview) silently refreshes and retries
+    return apiClient.post('/transcribe/', formData);
   },
 };
 

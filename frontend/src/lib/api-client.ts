@@ -75,6 +75,39 @@ class ApiClient {
   async delete<T>(endpoint: string): Promise<T> {
     return this.request<T>(endpoint, { method: 'DELETE' });
   }
+
+  // Special method for endpoints that return binary (Blob) responses, e.g. TTS audio.
+  // Handles 401 + token refresh the same way as request(), but returns a Blob.
+  async postBlob(endpoint: string, body?: any): Promise<Blob> {
+    const headers = new Headers();
+    if (!(body instanceof FormData)) {
+      headers.set('Content-Type', 'application/json');
+    }
+
+    const attempt = async (retry: boolean): Promise<Response> => {
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        method: 'POST',
+        headers,
+        body: body instanceof FormData ? body : JSON.stringify(body),
+        credentials: 'include',
+      });
+
+      if (response.status === 401 && retry) {
+        const refreshed = await this.refreshSession();
+        if (refreshed) return attempt(false);
+      }
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || data.message || 'Request failed');
+      }
+
+      return response;
+    };
+
+    const response = await attempt(true);
+    return response.blob();
+  }
 }
 
 export const apiClient = new ApiClient();

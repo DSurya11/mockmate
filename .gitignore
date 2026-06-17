@@ -20,3 +20,11 @@ Thumbs.db
 # Dead code from TanStack Start → Vite migration
 frontend/src/pages/
 frontend/convert-routes.cjs
+
+# Piper TTS model files — large binary files, not for version control
+*.onnx
+*.onnx.json
+voices/
+
+# Internal tooling logs
+.waylog/

@@ -286,3 +286,90 @@ async def conversational_interview(request: ConversationalInterviewRequest):
         
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Conversational interview failed: {e}")
+
+
+class ConversationEvaluationRequest(BaseModel):
+    conversation_history: list[dict]  # [{role: "assistant"|"user", content: str}]
+    job_role: str
+    interview_type: str = "Technical"
+
+
+@router.post("/evaluate-conversation")
+async def evaluate_conversation(req: ConversationEvaluationRequest):
+    """
+    Evaluates a completed conversational interview by pairing each interviewer
+    question with the candidate's reply, scoring each pair, and returning a
+    weighted overall score (0-100).
+    """
+    try:
+        from app.services.groq_service import _call_with_retry, _extract_json, _parse_json
+
+        # Extract (question, answer) pairs from conversation history.
+        # Skip small-talk phases (greeting, name, agenda) — only score substantive exchanges.
+        pairs = []
+        history = req.conversation_history
+        SKIP_KEYWORDS = [
+            "how are you", "your name", "get started", "today's session",
+            "structure", "any questions", "take care", "great talking",
+            "nice to meet", "sounds good", "my name is"
+        ]
+
+        for i in range(len(history) - 1):
+            if history[i]["role"] == "assistant" and history[i + 1]["role"] == "user":
+                question = history[i]["content"].strip()
+                answer = history[i + 1]["content"].strip()
+                # Skip very short answers (filler) and non-technical small talk
+                if len(answer.split()) < 4:
+                    continue
+                if any(kw in question.lower() for kw in SKIP_KEYWORDS):
+                    continue
+                pairs.append({"question": question, "answer": answer})
+
+        if not pairs:
+            return {"overallScore": None, "scoredExchanges": 0, "breakdown": []}
+
+        # Score each substantive exchange (cap at 6 to stay within token limits)
+        pairs_to_score = pairs[-6:] if len(pairs) > 6 else pairs
+
+        scored = []
+        for pair in pairs_to_score:
+            prompt = (
+                f"You are evaluating a {req.interview_type} interview for the role of {req.job_role}.\n\n"
+                f"Interviewer Question:\n{pair['question']}\n\n"
+                f"Candidate Answer:\n{pair['answer']}\n\n"
+                "Score this answer on three dimensions (each 0-100):\n"
+                "- technicalScore: accuracy, depth, relevance to the question\n"
+                "- communicationScore: clarity, structure, conciseness\n"
+                "- overallScore: weighted combination (technical 60%, communication 40%)\n\n"
+                "Be strict. Vague or filler answers should score below 30.\n"
+                "Return ONLY valid JSON: "
+                '{"technicalScore": <number>, "communicationScore": <number>, "overallScore": <number>}'
+            )
+            try:
+                raw = await _call_with_retry(prompt, max_tokens=120, temperature=0.0)
+                data = _parse_json(raw)
+                overall = data.get("overallScore")
+                if isinstance(overall, (int, float)) and 0 <= overall <= 100:
+                    scored.append({
+                        "question": pair["question"][:80] + "..." if len(pair["question"]) > 80 else pair["question"],
+                        "technicalScore": data.get("technicalScore"),
+                        "communicationScore": data.get("communicationScore"),
+                        "overallScore": overall,
+                    })
+            except Exception:
+                continue  # Skip exchanges that fail — don't crash the whole evaluation
+
+        if not scored:
+            return {"overallScore": None, "scoredExchanges": 0, "breakdown": []}
+
+        avg_overall = round(sum(s["overallScore"] for s in scored) / len(scored), 1)
+
+        return {
+            "overallScore": avg_overall,
+            "scoredExchanges": len(scored),
+            "breakdown": scored,
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Conversation evaluation failed: {e}")
+

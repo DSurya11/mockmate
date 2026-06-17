@@ -1,5 +1,5 @@
 services:
-  # PostgreSQL Database
+  # PostgreSQL Database (local - not used for auth, kept for local dev tools)
   postgres:
     image: postgres:16-alpine
     container_name: mockmate-db
@@ -39,18 +39,25 @@ services:
       - "5000:5000"
     volumes:
       - uploads_data:/app/uploads
-    env_file:
-      - .env
     environment:
       NODE_ENV: development
       PORT: 5000
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ai_interview?schema=public
-      REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-key-change-me}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-super-secret-refresh-key-change-me}
+      DATABASE_URL: ${DATABASE_URL}
+      DIRECT_URL: ${DIRECT_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
       COOKIE_SECURE: "false"
       AI_SERVICE_URL: http://ai-service:8000
       FRONTEND_URL: http://localhost:3000
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      UPLOAD_DIR: ./uploads
+      MAX_FILE_SIZE: "10485760"
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
     depends_on:
       postgres:
         condition: service_healthy
@@ -62,19 +69,24 @@ services:
   worker:
     build: ./backend
     container_name: mockmate-worker
-    command: ["sh", "-c", "npx prisma migrate deploy && node dist/workers/queues.js"]
+    command: ["node", "dist/workers/queues.js"]
     ports:
       - "9101:9101"
     volumes:
       - uploads_data:/app/uploads
-    env_file:
-      - .env
     environment:
       NODE_ENV: development
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ai_interview?schema=public
-      REDIS_URL: redis://redis:6379
+      DATABASE_URL: ${DATABASE_URL}
+      DIRECT_URL: ${DIRECT_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       AI_SERVICE_URL: http://ai-service:8000
       WORKER_METRICS_PORT: 9101
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
     depends_on:
       postgres:
         condition: service_healthy
@@ -90,14 +102,12 @@ services:
     container_name: mockmate-ai
     ports:
       - "8000:8000"
-    env_file:
-      - .env
     environment:
-      GROQ_BASE_URL: ${GROQ_BASE_URL:-https://api.groq.com/openai/v1}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      GROQ_BASE_URL: https://api.groq.com/openai/v1
       BACKEND_URL: http://backend:5000
     restart: unless-stopped
 
-  
   # Frontend
   frontend:
     build:

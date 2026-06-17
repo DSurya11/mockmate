@@ -21,19 +21,19 @@ const SPEAKING_DELAY_SECONDS = 3; // Delay after AI finishes speaking before use
 
 const INTERVIEWERS = [
   { 
-    id: "alex", 
-    name: "Alex", 
+    id: "priya", 
+    name: "Priya", 
     title: "Senior Backend Engineer", 
-    gender: "male", 
+    gender: "female", 
     voice: "en_US-ryan-high",
     tone: "analytical and calm",
     specialty: "backend systems, APIs, databases"
   },
   { 
-    id: "marcus", 
-    name: "Marcus", 
+    id: "jordan", 
+    name: "Jordan", 
     title: "Staff Systems Engineer", 
-    gender: "male", 
+    gender: "female", 
     voice: "en_US-joe-medium",
     tone: "direct and thorough",
     specialty: "system design, infrastructure, scalability"
@@ -102,6 +102,7 @@ export default function InterviewRoom() {
   const [resumeSummary, setResumeSummary] = useState("No resume provided.");
   const [resumeField, setResumeField] = useState("software engineering");
   const [transcribing, setTranscribing] = useState(false);
+  const [isScoring, setIsScoring] = useState(false);
 
   // Refs that mirror transcript state so useCallback closures ([] deps) can read latest values
   const transcriptRef = useRef("");
@@ -611,17 +612,23 @@ export default function InterviewRoom() {
   const completeInterviewSession = useCallback(async () => {
     if (!iv || interviewCancelledRef.current || finalizingInterviewRef.current) return;
     finalizingInterviewRef.current = true;
+    if (mountedRef.current) setIsScoring(true);
     try {
-      const updated = await api.completeInterview(iv.id);
+      const updated = await api.completeInterview(iv.id, {
+        conversationHistory,
+        jobRole: iv.jobRole,
+        interviewType: iv.interviewType,
+      });
       if (mountedRef.current) setIv(updated);
     } catch (error) {
       console.error("Failed to complete interview:", error);
     } finally {
       if (mountedRef.current) {
+        setIsScoring(false);
         finalizingInterviewRef.current = false;
       }
     }
-  }, [iv]);
+  }, [iv, conversationHistory]);
 
   // Start conversational interview
   const startConversationalInterview = useCallback(async () => {
@@ -838,6 +845,32 @@ export default function InterviewRoom() {
   if (error || !iv) return <FullPageError message={error ?? "Interview not found"} />;
 
   if (iv.status === "cancelled") return <FullPageError message="This interview was cancelled because the session lost focus or switched tabs. Please start a new interview from the dashboard." />;
+
+  // Show scoring overlay while AI evaluates the conversation (replaces frozen interview UI)
+  if (isScoring) return (
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-background">
+      <div className="pointer-events-none absolute inset-0 grid-bg opacity-20" />
+      <div className="relative flex flex-col items-center gap-5">
+        <div className="h-16 w-16 rounded-full border-4 border-primary/20 border-t-primary animate-spin" />
+        <div className="text-center">
+          <div className="text-xl font-semibold tracking-tight">Calculating your score…</div>
+          <div className="mt-1 text-sm text-muted-foreground animate-pulse">
+            {interviewer.name} is reviewing your answers
+          </div>
+        </div>
+        <div className="mt-2 flex gap-1.5">
+          {[0,1,2].map(i => (
+            <div key={i} className="h-1.5 w-8 rounded-full bg-primary/30 overflow-hidden">
+              <div
+                className="h-full bg-primary rounded-full"
+                style={{ animation: `pulse 1.5s ease-in-out ${i * 0.3}s infinite` }}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 
   if (iv.status === "completed") return <ResultsView iv={iv} interviewer={interviewer} interviewPhase={interviewPhase} exchangeCount={exchangeCount} conversationHistory={conversationHistory} />;
 

@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "worker": "node dist/workers/queues.js",
+    "test": "echo 'No backend unit tests configured yet' && exit 0",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
