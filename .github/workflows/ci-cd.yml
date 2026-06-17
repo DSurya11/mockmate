@@ -70,15 +70,22 @@ jobs:
     needs: [backend-check, ai-service-check, frontend-build]
     if: github.ref == 'refs/heads/main'
     steps:
-      - name: Sync fork from upstream
+      - name: Force-sync fork to upstream HEAD
+        continue-on-error: true
         run: |
-          curl -f -X POST \
+          UPSTREAM_SHA=$(curl -s \
+            -H "Authorization: token ${{ secrets.FORK_SYNC_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/DSurya11/mockmate/git/ref/heads/main \
+            | jq -r '.object.sha')
+          echo "Upstream SHA: $UPSTREAM_SHA"
+          curl -f -X PATCH \
             -H "Authorization: token ${{ secrets.FORK_SYNC_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
             -H "Content-Type: application/json" \
-            https://api.github.com/repos/dantulurisurya71-byte/mockmate/merge-upstream \
-            -d '{"branch":"main"}'
-          echo "Fork synced from DSurya11/mockmate"
+            https://api.github.com/repos/dantulurisurya71-byte/mockmate/git/refs/heads/main \
+            -d "{\"sha\": \"$UPSTREAM_SHA\", \"force\": true}"
+          echo "Fork force-synced to $UPSTREAM_SHA"
 
       - name: Wait for fork sync to propagate
         run: sleep 15
