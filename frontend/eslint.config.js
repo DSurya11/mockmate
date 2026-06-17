@@ -5,7 +5,17 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", ".output", ".vinxi"] },
+  {
+    ignores: [
+      "dist",
+      ".output",
+      ".vinxi",
+      // Legacy Next.js directories — dead code from migration
+      "src/app",
+      "src/store",
+      "src/pages",
+    ],
+  },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],
@@ -33,7 +43,7 @@ export default tseslint.config(
       ],
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       "@typescript-eslint/no-unused-vars": "off",
-      // `any` is used intentionally in several places — disable to unblock CI
+      // `any` is used intentionally in several places
       "@typescript-eslint/no-explicit-any": "off",
       // Empty catch blocks are intentional (silencing media/audio cleanup errors)
       "no-empty": "off",
