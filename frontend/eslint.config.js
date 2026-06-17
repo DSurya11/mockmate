@@ -34,6 +34,8 @@ export default tseslint.config(
       ],
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       "@typescript-eslint/no-unused-vars": "off",
+      // Prettier formatting is a style preference — warn in editor but never block CI
+      "prettier/prettier": "warn",
     },
   },
   eslintPluginPrettier,
