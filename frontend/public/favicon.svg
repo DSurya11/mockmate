@@ -5,8 +5,13 @@
       <stop offset="100%" stop-color="#3b82f6"/>
     </linearGradient>
   </defs>
+  <!-- Background rounded square (same as the Logo wrapper div) -->
   <rect width="32" height="32" rx="8" fill="url(#grad)"/>
-  <path d="M8 18c0-4.4 3.6-8 8-8s8 3.6 8 8" stroke="white" stroke-width="2.4" stroke-linecap="round"/>
-  <circle cx="16" cy="18" r="2.4" fill="white"/>
-  <path d="M12 24h8" stroke="white" stroke-width="2.4" stroke-linecap="round"/>
+  <!-- Exact same SVG content from Logo.tsx, centered inside the 32x32 box -->
+  <!-- Original viewBox is 0 0 24 24, we translate+scale to center it -->
+  <g transform="translate(4, 4) scale(1)">
+    <path d="M4 14c0-4.4 3.6-8 8-8s8 3.6 8 8" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
+    <circle cx="12" cy="14" r="2.2" fill="white"/>
+    <path d="M9 19h6" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
+  </g>
 </svg>
