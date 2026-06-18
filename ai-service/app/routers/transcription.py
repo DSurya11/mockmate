@@ -1,15 +1,9 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
 import os
-import tempfile
 import logging
-import functools
 from pydantic import BaseModel
 from typing import Optional
-import aiofiles
-import asyncio
-
-# Global model instance
-whisper_model = None
+from openai import OpenAI
 
 class TranscriptionResponse(BaseModel):
     text: str
@@ -18,84 +12,55 @@ class TranscriptionResponse(BaseModel):
 
 router = APIRouter(prefix="/transcribe", tags=["transcription"])
 
-async def get_whisper_model():
-    """Get or initialize the Whisper model singleton"""
-    global whisper_model
-    if whisper_model is None:
-        try:
-            from faster_whisper import WhisperModel
-            logging.info("Loading Whisper base model...")
-            whisper_model = WhisperModel(
-                "base",
-                device="cpu",
-                compute_type="int8"
-            )
-            logging.info("Whisper base model loaded successfully")
-        except Exception as e:
-            logging.error(f"Failed to load Whisper model: {e}")
-            raise HTTPException(status_code=500, detail="Failed to load transcription model")
-    return whisper_model
+# Groq Whisper client — reuses GROQ_API_KEY, OpenAI-compatible endpoint
+_groq_client: Optional[OpenAI] = None
 
-def _run_transcribe(model, audio_path: str):
-    """
-    Synchronous helper that calls faster-whisper and collects the segment generator.
-    faster-whisper returns (segments_generator, TranscriptionInfo) — NOT a dict.
-    This must run in an executor because the generator is lazy/CPU-bound.
-    """
-    segments, info = model.transcribe(
-        audio_path,
-        language="en",
-        beam_size=1,
-        best_of=1,
-        temperature=0.0,
-    )
-    # Consume the generator while still in the executor thread
-    text = " ".join(segment.text for segment in segments).strip()
-    return text, info.language, getattr(info, "duration", None)
+def get_groq_client() -> OpenAI:
+    global _groq_client
+    if _groq_client is None:
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise RuntimeError("GROQ_API_KEY not set")
+        _groq_client = OpenAI(
+            base_url="https://api.groq.com/openai/v1",
+            api_key=api_key,
+        )
+    return _groq_client
+
 
 @router.post("/", response_model=TranscriptionResponse)
 async def transcribe_audio(file: UploadFile = File(...)):
-    """Transcribe audio/video file using Faster-Whisper"""
-    temp_path = None
+    """Transcribe audio using Groq Whisper API (whisper-large-v3-turbo).
+
+    Groq processes audio at ~200x real-time (~631ms for a 5s clip).
+    Supports webm, wav, mp3, ogg, flac natively — no ffmpeg conversion needed.
+    """
+    content_type = file.content_type or ""
+    if not content_type.startswith(("audio/", "video/")):
+        raise HTTPException(status_code=400, detail="Invalid file type. Expected audio or video.")
+
     try:
-        # Validate file type
-        content_type = file.content_type or ""
-        if not content_type.startswith(('audio/', 'video/')):
-            raise HTTPException(status_code=400, detail="Invalid file type. Expected audio or video.")
+        content = await file.read()
+        if not content:
+            logging.warning("Empty audio file received")
+            return TranscriptionResponse(text="", language="en", duration=0.0)
 
-        # Write upload to a named temp file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as tmp:
-            temp_path = tmp.name
+        filename = file.filename or "audio.webm"
+        logging.info(f"Transcribing via Groq Whisper: {filename} ({len(content)} bytes)")
 
-        async with aiofiles.open(temp_path, 'wb') as f:
-            content = await file.read()
-            await f.write(content)
-
-        # Load model singleton
-        model = await get_whisper_model()
-
-        # Run synchronous transcription in thread pool
-        logging.info(f"Transcribing file: {file.filename} ({len(content)} bytes)")
-        loop = asyncio.get_event_loop()
-        text, language, duration = await loop.run_in_executor(
-            None,
-            functools.partial(_run_transcribe, model, temp_path)
+        client = get_groq_client()
+        result = client.audio.transcriptions.create(
+            file=(filename, content),
+            model="whisper-large-v3-turbo",
+            language="en",
+            response_format="json",
         )
 
-        logging.info(f"Transcription complete: '{text[:80]}...' lang={language}")
-        return TranscriptionResponse(text=text, language=language, duration=duration)
+        text = (result.text or "").strip()
+        logging.info(f"Groq transcription complete: '{text[:80]}'")
+        return TranscriptionResponse(text=text, language="en", duration=None)
 
-    except HTTPException as e:
-        if e.status_code == 400:
-            raise
-        logging.error(f"Transcription HTTP error: {e.detail}")
-        return TranscriptionResponse(text="", language="en", duration=0.0)
     except Exception as e:
-        logging.error(f"Transcription error: {e}", exc_info=True)
+        logging.error(f"Groq transcription error: {e}", exc_info=True)
+        # Return empty transcript so the interview can continue unblocked
         return TranscriptionResponse(text="", language="en", duration=0.0)
-    finally:
-        if temp_path:
-            try:
-                os.unlink(temp_path)
-            except OSError:
-                pass

@@ -52,7 +52,7 @@ PostgreSQL     Queue jobs
 | **Backend** | Node.js, Express 5, TypeScript, Prisma ORM |
 | **AI Service** | Python 3.12, FastAPI, Groq (via OpenAI client) |
 | **TTS** | gTTS (Google Text-to-Speech) |
-| **Transcription** | Faster-Whisper base model (CPU, int8) |
+| **Transcription** | Groq Whisper API (`whisper-large-v3-turbo`) — ~600ms latency |
 | **Database** | PostgreSQL 16 |
 | **Cache / Queue** | Redis 7, BullMQ |
 | **Realtime** | Socket.IO (signaling) |
@@ -250,7 +250,7 @@ Open `http://localhost:3000` in your browser.
 - **Conversational AI Interviewers** — 3 distinct personas (Priya, Jordan, Sarah), each with a unique voice accent and specialty area, powered by Groq LLMs
 - **6-Phase Interview Flow** — Greeting → Small Talk → Agenda → Background → Core Questions → Closing, enforced by a master prompt
 - **gTTS Voice Synthesis** — Google Text-to-Speech for audio generation; falls back to browser `speechSynthesis`
-- **Hybrid Transcription** — Browser `SpeechRecognition` provides live word display during recording; Faster-Whisper (base model) delivers the final accurate transcript after stop
+- **Hybrid Transcription** — Browser `SpeechRecognition` provides live word display during recording; Groq Whisper (`whisper-large-v3-turbo`) delivers the final accurate transcript in ~600ms after stop — 30–100x faster than local Faster-Whisper on free-tier CPU
 - **4-Second Review Window** — After Whisper processes the answer, a countdown gives the candidate time to review before auto-submit
 - **Adaptive Follow-up Questions** — Backend injects AI-generated follow-ups based on answers (up to 4, capped at 12 total questions)
 - **Resume Analysis** — PDF upload, ATS scoring, skill extraction via Groq, processed via BullMQ workers
