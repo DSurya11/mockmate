@@ -42,6 +42,7 @@ type Interview = {
   completedAt?: string;
   score?: number;
   questions: Question[];
+  conversationHistory?: Array<{role: string; content: string}>;
 };
 
 export const api = {
@@ -91,6 +92,7 @@ export const api = {
       status: iv.status.toLowerCase() as Interview["status"],
       createdAt: iv.createdAt,
       score: iv.totalScore,
+      conversationHistory: (iv.report as any)?.conversationHistory || [],
       questions: iv.questions?.map((q: any) => ({
         id: q.id,
         prompt: q.questionText,

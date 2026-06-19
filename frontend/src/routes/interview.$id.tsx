@@ -205,7 +205,13 @@ export default function InterviewRoom() {
     api
       .getInterview(id)
       .then((data) => {
-        if (!cancelled) setIv(data);
+        if (!cancelled) {
+          setIv(data);
+          // Restore persisted conversation history for completed interviews
+          if (data.status === 'completed' && data.conversationHistory?.length) {
+            setConversationHistory(data.conversationHistory);
+          }
+        }
       })
       .catch((e) => {
         if (!cancelled) setError(e.message);

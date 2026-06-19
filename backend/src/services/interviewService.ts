@@ -331,6 +331,10 @@ export class InterviewService {
             ? 'complete'
             : (scoredOverall.length === 0 ? 'pending' : 'partial'),
         },
+        // Persist conversation history so results page can display it when revisited
+        report: body?.conversationHistory?.length
+          ? { conversationHistory: body.conversationHistory, savedAt: new Date().toISOString() }
+          : undefined,
       },
     });
 

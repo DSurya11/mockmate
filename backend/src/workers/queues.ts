@@ -179,6 +179,8 @@ const reportWorker = new Worker('report-generation', async (job: Job) => {
       answeredCount: answers.length,
       scoredCount: scored.length,
       totalQuestions: interview.questions.length,
+      // Preserve conversation history saved during completion — do not overwrite
+      conversationHistory: (interview.report as any)?.conversationHistory || [],
     };
 
     await prisma.interview.update({
