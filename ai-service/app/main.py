@@ -27,19 +27,6 @@ app.include_router(interview_router, prefix="/api/interview", tags=["Interview"]
 app.include_router(tts.router, prefix="/api")
 app.include_router(transcription.router, prefix="/api")
 
-@app.on_event("startup")
-async def preload_whisper():
-    """Pre-warm Whisper model at startup so the first transcription request is instant."""
-    import asyncio
-    import logging
-    async def _warm():
-        try:
-            from app.routers.transcription import get_whisper_model
-            await get_whisper_model()
-            logging.info("Whisper model pre-warmed at startup.")
-        except Exception as e:
-            logging.warning(f"Whisper pre-warm failed (will retry on first request): {e}")
-    asyncio.create_task(_warm())
 
 @app.get("/health")
 async def health():
