@@ -37,6 +37,50 @@ function speechPieces(text: string, limit = 190): string[] {
   return pieces;
 }
 
+/** The interviewer's transition remark (questions dropped), then the first prepared question. */
+function withFirstQuestion(reply: string, question: string): string {
+  const remarks = (reply.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [])
+    .map((s) => s.trim())
+    .filter((s) => s && !s.endsWith("?"));
+  return [...remarks.slice(0, 2), question].join(" ");
+}
+
+type VoiceMeter = { stop: () => void; spokeMs: () => number; takePieceMs: () => number };
+
+/**
+ * Measures the microphone 10 times a second and counts the time someone is speaking: louder
+ * than the room's own noise (which it learns as it goes) and above a small absolute level.
+ * spokeMs is the whole answer; takePieceMs is the time since it was last asked (one
+ * live-words piece).
+ */
+function startVoiceMeter(stream: MediaStream): VoiceMeter | null {
+  try {
+    const context = new AudioContext();
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 2048;
+    context.createMediaStreamSource(stream).connect(analyser);
+    const samples = new Float32Array(analyser.fftSize);
+    let floor = 0.01;
+    let total = 0;
+    let piece = 0;
+    const timer = setInterval(() => {
+      analyser.getFloatTimeDomainData(samples);
+      let sum = 0;
+      for (const s of samples) sum += s * s;
+      const rms = Math.sqrt(sum / samples.length);
+      floor = Math.min(floor * 1.02, Math.max(rms, 0.0005));   // drops at once, rises slowly
+      if (rms > Math.max(0.006, floor * 3)) { total += 100; piece += 100; }
+    }, 100);
+    return {
+      stop: () => { clearInterval(timer); context.close().catch(() => undefined); },
+      spokeMs: () => total,
+      takePieceMs: () => { const p = piece; piece = 0; return p; },
+    };
+  } catch {
+    return null;   // no Web Audio: send everything, the server filter still applies
+  }
+}
+
 // Length of each live-words piece sent to Whisper in browsers without speech recognition.
 const PREVIEW_PIECE_MS = 6000;
 
@@ -118,6 +162,13 @@ export default function InterviewRoom() {
   // Interview phase management
   const [interviewPhase, setInterviewPhase] = useState<InterviewPhase>("GREETING");
   const [candidateName, setCandidateName] = useState<string | null>(null);
+  // The interviewer is told the name the candidate registered with. It was never set (name
+  // extraction was left as a TODO), so she asked for it again in every turn: four times in a
+  // row in a recorded run, using up the overview and warm-up.
+  useEffect(() => {
+    const first = auth.user?.name?.trim().split(/\s+/)[0];
+    if (first && !candidateName) setCandidateName(first);
+  }, [auth.user?.name, candidateName]);
   const [warmupQuestionsAsked, setWarmupQuestionsAsked] = useState(0);
   const [closingTurnCount, setClosingTurnCount] = useState(0);
   const [exchangeCount, setExchangeCount] = useState(0);
@@ -135,6 +186,18 @@ export default function InterviewRoom() {
   // An answer whose transcription failed twice: kept so it can be sent again, never dropped.
   const failedAnswerRef = useRef<Blob | null>(null);
   const [answerFailed, setAnswerFailed] = useState(false);
+  // How much of the answer actually had someone speaking. Whisper turns silence into
+  // "Thank you." (measured: 6 s of silence came back as exactly that), so silence is not sent.
+  const voiceMeterRef = useRef<VoiceMeter | null>(null);
+  // The interviewer's voice, measured as it plays, moves the rings around her letter.
+  const speechContextRef = useRef<AudioContext | null>(null);
+  const speechAnalyserRef = useRef<AnalyserNode | null>(null);
+  const innerRingRef = useRef<HTMLSpanElement | null>(null);
+  const outerRingRef = useRef<HTMLSpanElement | null>(null);
+  const [noSpeech, setNoSpeech] = useState(false);
+  // The camera/microphone could not be opened (permission blocked, no device). It used to be
+  // logged only, and Start answering then silently did nothing.
+  const [micError, setMicError] = useState<string | null>(null);
   const interimTranscriptRef = useRef("");
   // Ref to always-latest handleNext (avoids stale closures in setTimeout callbacks)
   const handleNextRef = useRef<((text?: string) => Promise<void>) | null>(null);
@@ -201,6 +264,7 @@ export default function InterviewRoom() {
       mountedRef.current = false;
       interviewActiveRef.current = false;
       previewRef.current?.stop();
+      voiceMeterRef.current?.stop();
       if (mediaRecorderRef.current) {
         try { mediaRecorderRef.current.stop(); } catch {}
         mediaRecorderRef.current = null;
@@ -277,6 +341,47 @@ export default function InterviewRoom() {
     return () => clearInterval(timer);
   }, [waitingForQuestions, id]);
 
+  // While the interviewer speaks, two rings around her letter follow the loudness of her voice:
+  // bigger on stressed words, settling in pauses, like a video call's speaking indicator.
+  // Without a measurable voice (the browser's own voice), a gentle pulse; reduced motion: none.
+  useEffect(() => {
+    const inner = innerRingRef.current;
+    const outer = outerRingRef.current;
+    if (!inner || !outer) return;
+    if (!speaking) {
+      for (const ring of [inner, outer]) { ring.style.transform = "scale(1)"; ring.style.opacity = "0"; }
+      return;
+    }
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const samples = new Uint8Array(512);
+    let level = 0;
+    let frame = 0;
+    const tick = (now: number) => {
+      const analyser = speechAnalyserRef.current;
+      let target: number;
+      if (analyser) {
+        analyser.getByteTimeDomainData(samples);
+        let sum = 0;
+        for (const s of samples) { const v = (s - 128) / 128; sum += v * v; }
+        target = Math.min(1, Math.sqrt(sum / samples.length) * 5);
+      } else {
+        target = 0.35 + 0.25 * Math.sin(now / 260);
+      }
+      level += (target - level) * (target > level ? 0.45 : 0.12);   // quick to rise, slow to fall
+      if (still) {
+        inner.style.opacity = "1"; outer.style.opacity = "0";
+      } else {
+        inner.style.transform = `scale(${1.06 + level * 0.2})`;
+        inner.style.opacity = String(0.7 + level * 0.3);
+        outer.style.transform = `scale(${1.18 + level * 0.55})`;
+        outer.style.opacity = String(0.2 + level * 0.6);
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [speaking]);
+
   // "Still here", every 30 s while the interview is open: one that goes quiet for 2 minutes is
   // closed as abandoned when the interview list is next read.
   const inSessionNow = iv?.status === "in_progress";
@@ -344,8 +449,15 @@ export default function InterviewRoom() {
         await videoRef.current.play().catch(() => {});
       }
       if (keepRecording) startSessionRecording(stream);
+      setMicError(null);
     } catch (e) {
       console.warn("Camera/mic denied", e);
+      const name = (e as { name?: string })?.name;
+      setMicError(name === "NotAllowedError"
+        ? "Your browser is blocking the camera and microphone for this site. Allow them (the icon at the left of the address bar), then reload the page."
+        : name === "NotFoundError"
+          ? "No microphone was found. Connect one, then reload the page."
+          : "The camera or microphone could not be opened. Close other apps using them, then reload the page.");
     }
   }, [keepRecording, startSessionRecording]);
 
@@ -435,8 +547,8 @@ export default function InterviewRoom() {
       // MediaRecorder was never started (stream unavailable) — fall back to browser transcript
       const fallback = (transcriptRef.current || interimTranscriptRef.current).trim();
       console.warn("No MediaRecorder at stop-time; falling back to browser transcript:", fallback);
-      // Submit immediately via ref — no countdown
-      handleNextRef.current?.(fallback);
+      if (fallback) handleNextRef.current?.(fallback);
+      else setNoSpeech(true);
     }
     
     cleanupInterviewAudioState();
@@ -487,6 +599,7 @@ export default function InterviewRoom() {
   function startRecording() {
     setTranscript("");
     setInterimTranscript("");
+    setNoSpeech(false);
     setSecondsLeft(QUESTION_SECONDS);
     startTimeRef.current = Date.now();
     setRecording(true);
@@ -551,12 +664,15 @@ export default function InterviewRoom() {
     };
     mr.onstop = async () => {
       const blob = new Blob(chunks, { type: mimeType });
-
-      // Always send for transcription
-      handleRecordingComplete(blob);
+      const spokeMs = voiceMeterRef.current?.spokeMs() ?? Infinity;
+      voiceMeterRef.current?.stop();
+      voiceMeterRef.current = null;
+      handleRecordingComplete(blob, spokeMs);
     };
     mr.start(1000); // chunk every second
     mediaRecorderRef.current = mr;
+    voiceMeterRef.current?.stop();
+    voiceMeterRef.current = startVoiceMeter(audioOnlyStream);
     if (!SR) startWhisperPreview(mimeType);
   }
 
@@ -578,7 +694,7 @@ export default function InterviewRoom() {
         if (!active) return;            // the answer ended: the full recording takes over
         piece();                        // the next piece starts straight away
         const blob = new Blob(parts, { type: mimeType });
-        if (blob.size < 3000) return;   // silence
+        if ((voiceMeterRef.current?.takePieceMs() ?? Infinity) < 300) return;   // nobody spoke
         api.transcribeAudio(blob).then(({ text }) => {
           if (!active || !mountedRef.current || !text?.trim()) return;
           pieces[n] = text.trim();
@@ -599,8 +715,14 @@ export default function InterviewRoom() {
     };
   }
 
-  const handleRecordingComplete = useCallback(async (audioBlob: Blob) => {
+  const handleRecordingComplete = useCallback(async (audioBlob: Blob, spokeMs = Infinity) => {
     if (!mountedRef.current || interviewCancelledRef.current) return;
+    if (spokeMs < 500) {
+      // Under half a second of speech in the whole answer: nothing to send.
+      setInterimTranscript("");
+      setNoSpeech(true);
+      return;
+    }
     setTranscribing(true);
     setAnswerFailed(false);
     let text = "";
@@ -692,6 +814,19 @@ export default function InterviewRoom() {
       ttsPlaybackResolveRef.current = () => resolve(true);
       const audio = new Audio(url);
       audioRef.current = audio;
+      const context = speechContextRef.current;
+      speechAnalyserRef.current = null;
+      if (context && context.state === "running") {
+        try {
+          const analyser = context.createAnalyser();
+          analyser.fftSize = 512;
+          context.createMediaElementSource(audio).connect(analyser);
+          analyser.connect(context.destination);
+          speechAnalyserRef.current = analyser;
+        } catch {
+          // the clip plays normally; the rings fall back to a plain pulse
+        }
+      }
       const done = (ok: boolean) => {
         audioRef.current = null;
         URL.revokeObjectURL(url);
@@ -875,18 +1010,26 @@ export default function InterviewRoom() {
       }
       if (!mountedRef.current || interviewCancelledRef.current || finalizingInterviewRef.current) return;
 
+      // The switch from warm-up to the main questions: the AI only announced it ("let's shift
+      // into the main part") and asked nothing, and the candidate was recorded answering no
+      // question. Code makes the turn end with prepared question 1, word for word.
+      const totalQ = iv?.questions?.length || 0;
+      const enteringCore = interviewPhase === "BACKGROUND" && totalQ > 0
+        && getNextPhase(interviewPhase, exchangeCount + 2, warmupQuestionsAsked, totalQ) === "CORE_QUESTIONS";
+      const spoken = enteringCore ? withFirstQuestion(response.response, iv!.questions[0].prompt) : response.response;
+
       // Add AI response to conversation history
-      const updatedHistory = [...newHistory, { role: "assistant", content: response.response }];
+      const updatedHistory = [...newHistory, { role: "assistant", content: spoken }];
       setConversationHistory(updatedHistory);
 
       // Play AI response via TTS
-      await playQuestionAudio(response.response, false);
+      await playQuestionAudio(spoken, false);
 
       if (!mountedRef.current || interviewCancelledRef.current || finalizingInterviewRef.current) return;
 
       // In the core questions the interviewer agent decides: move on, or stay on this question
       // for a follow-up or a repeat. Only "advance" moves to the next question.
-      const totalQ = iv?.questions?.length || 0;
+      // questionIndex counts the questions asked so far (1 after question 1 was asked).
       let nextQIdx = questionIndex;
       if (interviewPhase === "CORE_QUESTIONS") {
         if (response.advance !== false) {
@@ -901,12 +1044,18 @@ export default function InterviewRoom() {
       // Compute next phase using updated question index
       let nextPhase: InterviewPhase;
       if (interviewPhase === "CORE_QUESTIONS") {
-        nextPhase = nextQIdx >= totalQ ? "CLOSING" : "CORE_QUESTIONS";
+        // Past the last question only once it has been answered (it used to switch to the
+        // wrap-up as soon as the last question was asked).
+        nextPhase = nextQIdx > totalQ ? "CLOSING" : "CORE_QUESTIONS";
       } else {
         nextPhase = getNextPhase(interviewPhase, exchangeCount + 2, warmupQuestionsAsked, totalQ);
       }
       if (nextPhase === "CLOSING" && interviewPhase !== "CLOSING") {
         setClosingTurnCount(0);
+      }
+      if (enteringCore) {
+        setQuestionIndex(1);
+        setFollowupsUsed(0);
       }
       setInterviewPhase(nextPhase);
       setExchangeCount(exchangeCount + 2);
@@ -947,6 +1096,12 @@ export default function InterviewRoom() {
 
   async function handleStart() {
     if (!iv) return;
+    try {
+      speechContextRef.current ??= new AudioContext();
+      void speechContextRef.current.resume();
+    } catch {
+      speechContextRef.current = null;   // no Web Audio: the rings use a plain pulse
+    }
     setSubmitting(true);
     try {
       const updated = await api.startInterview(iv.id);
@@ -1138,8 +1293,12 @@ export default function InterviewRoom() {
           <div className="grid gap-3 md:grid-cols-2">
             {/* The interviewer's tile */}
             <section className="relative grid aspect-video place-items-center overflow-hidden rounded-md bg-surface-2">
-              <div className={`grid h-28 w-28 place-items-center rounded-full bg-elevated font-display text-5xl transition-shadow duration-300 ${speaking ? "ring-2 ring-accent/70 ring-offset-4 ring-offset-surface-2" : ""}`}>
-                {interviewer.name.charAt(0)}
+              <div className="relative grid h-28 w-28 place-items-center">
+                <span ref={outerRingRef} aria-hidden className="absolute inset-0 rounded-full border-2 border-accent/50 bg-accent/10 opacity-0 will-change-transform" />
+                <span ref={innerRingRef} aria-hidden className="absolute inset-0 rounded-full border-2 border-accent opacity-0 will-change-transform" />
+                <div className="relative grid h-28 w-28 place-items-center rounded-full bg-elevated font-display text-5xl">
+                  {interviewer.name.charAt(0)}
+                </div>
               </div>
               <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded bg-background/70 px-2.5 py-1 text-xs">
                 <SpeakingMeter active={speaking} />
@@ -1158,10 +1317,16 @@ export default function InterviewRoom() {
                 {keepRecording && <span className="text-muted-foreground">· video kept on this computer</span>}
               </div>
               <div className="absolute right-3 top-3 rounded bg-background/70 px-2 py-1 font-mono text-[11px] text-muted-foreground">
-                {interviewPhase === "CORE_QUESTIONS" ? `Question ${questionIndex + 1} of ${iv.questions.length || "…"}` : steps.find((s) => s.phase === interviewPhase)?.label}
+                {interviewPhase === "CORE_QUESTIONS" ? `Question ${Math.min(Math.max(questionIndex, 1), iv.questions.length || 1)} of ${iv.questions.length || "…"}` : steps.find((s) => s.phase === interviewPhase)?.label}
               </div>
             </section>
           </div>
+
+          {micError && (
+            <div className="mx-auto mt-5 max-w-3xl rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
+              {micError}
+            </div>
+          )}
 
           {/* Captions: what she said, then what you are saying */}
           <section className="mx-auto mt-6 max-w-3xl">
@@ -1200,6 +1365,11 @@ export default function InterviewRoom() {
                   {submitting ? "Sending…" : transcribing ? "Transcribing…" : `${words} words`}
                 </span>
               </div>
+              {noSpeech && (
+                <p className="mt-2 text-[15px] text-muted-foreground">
+                  No speech was picked up, so nothing was sent. Check that your microphone is on and not muted, then press Start answering.
+                </p>
+              )}
               {answerFailed && (
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-[15px] text-muted-foreground">
                   <span>That answer could not be turned into text. It is kept:</span>
@@ -1233,7 +1403,7 @@ export default function InterviewRoom() {
               Replay
             </Button>
             {!recording ? (
-              <Button onClick={startRecording} disabled={speaking || aiWaiting || transcribing || speakingDelay > 0 || submitting}>
+              <Button onClick={startRecording} disabled={!!micError || speaking || aiWaiting || transcribing || speakingDelay > 0 || submitting}>
                 Start answering
               </Button>
             ) : (

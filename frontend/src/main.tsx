@@ -14,6 +14,22 @@ import { keepAwake } from './lib/keepAwake'
 // Wake the free-tier services when the app opens, and keep them awake while it is in use.
 keepAwake()
 
+// Pages load on demand. After a deploy, a tab opened earlier asks for page files that no longer
+// exist and the page stays blank. Reload, but only when a new version really is deployed: the
+// server's page names a different main script than the one running. Firefox also reports a load
+// cancelled by leaving the page as failed; reloading then bounced people back (seen in a test).
+window.addEventListener('vite:preloadError', (event) => {
+  const running = document.querySelector<HTMLScriptElement>('script[type="module"][src*="/assets/index-"]')?.src
+  event.preventDefault()
+  fetch('/', { cache: 'no-store' })
+    .then((r) => r.text())
+    .then((html) => {
+      const deployed = html.match(/\/assets\/index-[\w-]+\.js/)?.[0]
+      if (running && deployed && !running.endsWith(deployed)) window.location.reload()
+    })
+    .catch(() => undefined)
+})
+
 function AuthBoot({ children }: { children: React.ReactNode }) {
   const init = useAuth((s) => s.init)
   useEffect(() => { init() }, [init])

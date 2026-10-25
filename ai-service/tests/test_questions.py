@@ -56,3 +56,20 @@ def test_when_no_model_answers_the_greeting_is_scripted(monkeypatch):
         job_role="DevOps Engineer")
     reply = asyncio.run(interview.conversational_interview(request))
     assert reply["response"].startswith("Hi, I'm Priya, Senior Engineer.")
+
+
+def test_the_candidates_name_reaches_the_prompt(monkeypatch):
+    # The prompt said {CANDIDATE_NAME | "the candidate"}, which the code never filled in, so the
+    # interviewer never knew the name and asked for it in four turns in a row.
+    seen = []
+    async def capture(messages):
+        seen.append(messages[0]["content"])
+        return "Nice to meet you, Asha. How has your week been?"
+    monkeypatch.setattr(interview, "chat_with_llm", capture)
+    request = interview.ConversationalInterviewRequest(
+        phase="SMALL_TALK", interviewer_name="Priya", interviewer_title="Senior Engineer",
+        interviewer_tone="warm", interviewer_specialty="cloud", interview_type="TECHNICAL",
+        job_role="DevOps Engineer", candidate_name="Asha", candidate_input="Doing well, thanks.")
+    asyncio.run(interview.conversational_interview(request))
+    assert "The candidate's name (if known): Asha" in seen[0]
+    assert "{CANDIDATE_NAME" not in seen[0]
