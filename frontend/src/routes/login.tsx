@@ -37,7 +37,12 @@ export default function LoginPage() {
   }
 
   return (
-    <AuthShell title="Welcome back" subtitle="Sign in to continue your prep.">
+    <AuthShell
+      title="Welcome back"
+      subtitle={new URLSearchParams(window.location.search).has('expired')
+        ? 'Your session ended. Sign in again (or create an account if yours is new).'
+        : 'Sign in to continue your prep.'}
+    >
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
         <Field label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" error={errors.email} autoComplete="email" />
         <Field label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" error={errors.password} autoComplete="current-password" />

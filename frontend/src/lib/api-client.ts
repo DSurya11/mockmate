@@ -1,5 +1,15 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
+// Still refused after refreshing the session: the account or session is gone (for example
+// after the database moved). Say so on the sign-in page; the interview page used to report
+// it as "the server did not answer". Calls under /auth/ are the login flow itself: no redirect.
+let leaving = false;
+function sessionGone(endpoint: string) {
+  if (leaving || endpoint.startsWith('/auth/') || window.location.pathname === '/login') return;
+  leaving = true;
+  window.location.assign('/login?expired=1');
+}
+
 class ApiClient {
   private refreshPromise: Promise<boolean> | null = null;
 
@@ -23,6 +33,7 @@ class ApiClient {
     }
 
     const data = await response.json().catch(() => ({}));
+    if (response.status === 401) sessionGone(endpoint);
     if (!response.ok) {
       throw new Error(data.error || data.message || 'An error occurred');
     }
@@ -98,6 +109,7 @@ class ApiClient {
       }
 
       if (!response.ok) {
+        if (response.status === 401) sessionGone(endpoint);
         const data = await response.json().catch(() => ({}));
         throw new Error(data.error || data.message || 'Request failed');
       }
