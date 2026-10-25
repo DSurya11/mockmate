@@ -64,27 +64,13 @@ jobs:
       - run: npm run lint
       - run: npm run build
 
-  # Deploy — syncs fork then triggers all 3 Render services
+  # Deploy: after every check passes on main, trigger all 3 Render services. Render builds
+  # straight from this repository (DSurya11/mockmate); there is no fork in between.
   deploy:
     runs-on: ubuntu-latest
     needs: [backend-check, ai-service-check, frontend-build]
     if: github.ref == 'refs/heads/main'
     steps:
-      - name: Force-sync fork via git push
-        continue-on-error: true
-        run: |
-          git clone --depth 1 \
-            https://x-access-token:${{ secrets.FORK_SYNC_TOKEN }}@github.com/DSurya11/mockmate.git \
-            /tmp/upstream-repo
-          cd /tmp/upstream-repo
-          git remote add fork \
-            https://x-access-token:${{ secrets.FORK_SYNC_TOKEN }}@github.com/dantulurisurya71-byte/mockmate.git
-          git push fork main:main --force
-          echo "Fork synced via git push"
-
-      - name: Wait for fork sync to propagate
-        run: sleep 15
-
       - name: Deploy Backend
         run: |
           curl -s -X POST "${{ secrets.RENDER_BACKEND_HOOK }}"

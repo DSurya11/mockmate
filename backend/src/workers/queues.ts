@@ -181,12 +181,49 @@ const reportWorker = new Worker('report-generation', async (job: Job) => {
       totalQuestions: interview.questions.length,
       // Preserve conversation history saved during completion — do not overwrite
       conversationHistory: (interview.report as any)?.conversationHistory || [],
+      // Saved by complete() with the conversation; this rebuild must not drop it.
+      evaluation: (interview.report as any)?.evaluation ?? null,
     };
 
     await prisma.interview.update({
       where: { id: interview.id },
       data: { report },
     });
+
+    // complete() scores the conversation once, straight away. When every free model was
+    // rate-limited at that moment the interview has no score: score it here, and throw on
+    // failure so BullMQ tries again later (the backoff spans the providers' per-minute limits).
+    if (report.evaluation === null && report.conversationHistory.length > 0) {
+      const res = await fetchWithTimeout(`${config.aiService.url}/api/interview/evaluate-conversation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversation_history: report.conversationHistory,
+          job_role: interview.jobRole,
+          interview_type: interview.type,
+        }),
+      }, aiTimeoutMs * 3);
+      if (!res.ok) throw new Error(`Conversation scoring failed: AI service returned ${res.status}`);
+      const evaluation = await res.json() as { overallScore: number | null; scoredExchanges: number };
+      const score = typeof evaluation.overallScore === 'number'
+        ? Math.round(evaluation.overallScore * 100) / 100
+        : null;
+      await prisma.interview.update({
+        where: { id: interview.id },
+        data: {
+          report: { ...report, evaluation },
+          ...(score !== null ? {
+            totalScore: score,
+            scoreBreakdown: {
+              ...((interview.scoreBreakdown as any) ?? {}),
+              scoredExchanges: evaluation.scoredExchanges,
+              scoringStatus: 'complete',
+            },
+          } : {}),
+        },
+      });
+      logger.info({ interviewId: interview.id, score }, 'Conversation scored by the report worker');
+    }
 
     workerMetrics.completedJobs.inc({ queue: 'report-generation' });
     logger.info({ jobId: job.id, interviewId: job.data.interviewId }, 'Report generated');

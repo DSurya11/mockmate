@@ -47,8 +47,9 @@ export async function addEvaluationJob(data: { answerId: string; question: strin
 export async function addReportJob(data: { interviewId: string }) {
   return reportQueue.add('generate', data, {
     jobId: `report-${data.interviewId}`,
-    attempts: 3,
-    backoff: { type: 'exponential', delay: 1000 },
+    // Also retries conversation scoring after a rate limit: 20 s, 40 s, 80 s, 160 s apart.
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 20000 },
     removeOnComplete: 100,
     removeOnFail: 50,
   });
