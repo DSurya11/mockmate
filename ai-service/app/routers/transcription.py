@@ -1,5 +1,6 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
 import logging
+import re
 import time
 from pydantic import BaseModel
 from typing import Optional
@@ -17,6 +18,30 @@ router = APIRouter(prefix="/transcribe", tags=["transcription"])
 # Groq Whisper, with every Groq key in GROQ_API_KEY ("key1,key2") tried in turn. Reading the
 # variable as one key sent "key1,key2" to Groq once it held two: every answer came back empty.
 # A key that is rate-limited or refused rests for a while, as in llm.py and voice.py.
+# What Whisper says for silence or room noise. Measured on Groq: 6 s of digital silence came
+# back as "Thank you." with no_speech_prob 0.0 and a confident avg_logprob, so its own scores
+# cannot catch it. A transcript made only of these (and stray syllables) is treated as empty;
+# a real answer that merely contains "thank you" is kept.
+def _words(text: str) -> str:
+    """Lower case, letters only, without 1-2 letter fragments ("hh", "uh", "so")."""
+    words = re.sub(r"[^a-z ]+", "", text.lower().replace("'", "")).split()
+    return " ".join(w for w in words if len(w) > 2)
+
+
+_HALLUCINATIONS = {_words(p) for p in (
+    "thank you", "thank you very much", "thank you so much", "thanks", "thanks for watching",
+    "thank you for watching", "thanks for listening", "thank you for listening", "you", "bye",
+    "bye bye", "okay", "please subscribe", "subscribe", "see you next time",
+    "I'll see you next time", "subtitles by the amara.org community", "music",
+)}
+
+
+def drop_hallucinations(text: str) -> str:
+    sentences = [s for s in re.split(r"(?<=[.!?])\s+|\n+", (text or "").strip()) if s.strip()]
+    noise = [not _words(s) or _words(s) in _HALLUCINATIONS for s in sentences]
+    return "" if all(noise) else (text or "").strip()
+
+
 REST_SECONDS = 120
 TIMEOUT_SECONDS = 30
 _clients: dict[int, AsyncOpenAI] = {}
@@ -44,7 +69,7 @@ async def whisper(filename: str, content: bytes) -> str:
             result = await _client(number).audio.transcriptions.create(
                 file=(filename, content), model="whisper-large-v3-turbo",
                 language="en", response_format="json")
-            return (result.text or "").strip()
+            return drop_hallucinations(result.text or "")
         except APIStatusError as error:
             failures.append(f"key#{number + 1} HTTP {error.status_code}")
             if error.status_code in (401, 403, 429):

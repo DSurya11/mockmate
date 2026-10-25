@@ -49,3 +49,26 @@ def test_when_every_key_fails_the_error_says_so(keys):
     keys.update({0: FakeKey(429), 1: FakeKey(500)})
     with pytest.raises(RuntimeError, match="key#1 HTTP 429; key#2 HTTP 500"):
         asyncio.run(transcription.whisper("a.webm", b"audio"))
+
+
+@pytest.mark.parametrize("heard", [
+    "Thank you.", "Thank you. Thank you. Thank you. hh Thank you. Thank you.", ".", "you", "Thanks for watching!",
+    "Bye. Thank you so much.",
+])
+def test_what_whisper_makes_up_for_silence_counts_as_nothing(heard):
+    # Measured: 6 s of silence came back from Groq as "Thank you." with confident scores.
+    assert transcription.drop_hallucinations(heard) == ""
+
+
+@pytest.mark.parametrize("said", [
+    "Thank you. I would check the deploy logs first.",
+    "I scaled the API to 10 instances behind a load balancer.",
+    "Okay, so first I would roll back the release.",
+])
+def test_real_answers_are_kept_even_with_thank_you_in_them(said):
+    assert transcription.drop_hallucinations(said) == said
+
+
+def test_a_made_up_transcript_from_a_key_is_returned_empty(keys):
+    keys.update({0: FakeKey("Thank you. Thank you."), 1: FakeKey("unused")})
+    assert asyncio.run(transcription.whisper("a.webm", b"silence")) == ""
