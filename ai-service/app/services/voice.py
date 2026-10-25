@@ -28,6 +28,7 @@ import time
 import wave
 
 import httpx
+import lameenc
 from gtts import gTTS
 
 from app.services import llm
@@ -105,6 +106,23 @@ def _join_wav(parts: list[bytes]) -> bytes:
     return out.getvalue()
 
 
+def _to_mp3(wav: bytes) -> bytes:
+    """Orpheus sends WAV: about 280 KB for one sentence. As 64 kbit/s MP3 it is about 8 times
+    smaller, so it reaches the browser sooner, and the 30 MB Redis cache (set never to evict,
+    which the job queues need) is not filled by voice lines. On any failure, the WAV is kept."""
+    with wave.open(io.BytesIO(wav)) as source:
+        channels, width, rate = source.getnchannels(), source.getsampwidth(), source.getframerate()
+        frames = source.readframes(source.getnframes())
+    if width != 2:
+        return wav
+    encoder = lameenc.Encoder()
+    encoder.set_bit_rate(64)
+    encoder.set_in_sample_rate(rate)
+    encoder.set_channels(channels)
+    encoder.set_quality(2)
+    return bytes(encoder.encode(frames) + encoder.flush())
+
+
 def _check(response: httpx.Response, engine: str) -> None:
     if response.status_code == 429:
         raise _Refused(f"{engine} rate-limited", REST_SECONDS["quota"])
@@ -133,7 +151,12 @@ async def _orpheus(client: httpx.AsyncClient, text: str, voice: str) -> tuple[by
                           "input": piece, "response_format": "wav"})
                 _check(response, name)
                 parts.append(response.content)
-            return _join_wav(parts), "audio/wav"
+            audio = _join_wav(parts)
+            try:
+                return _to_mp3(audio), "audio/mpeg"
+            except Exception as error:                       # never lose the voice over encoding
+                logger.warning("MP3 encoding failed, sending WAV: %s", error)
+                return audio, "audio/wav"
         except _Refused as error:
             _resting[name] = time.monotonic() + error.rest
             last = error
