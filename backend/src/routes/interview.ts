@@ -89,6 +89,16 @@ router.patch('/:id/start', authenticate, validateParams(idParamSchema), async (r
   }
 });
 
+// The interview page calls this every 30 s while it is open (see closeAbandoned).
+router.post('/:id/alive', authenticate, validateParams(idParamSchema), async (req: AuthRequest, res: Response) => {
+  try {
+    await InterviewService.markAlive(req.params.id as string, { id: req.user!.id, role: req.user!.role });
+    res.json({ ok: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.patch('/:id/cancel', authenticate, validateParams(idParamSchema), async (req: AuthRequest, res: Response) => {
   try {
     const interview = await InterviewService.cancel(req.params.id as string, req.user!);

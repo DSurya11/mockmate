@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import redisClient from '../config/redis';
 import { callAiService } from '../config/aiService';
 import prisma from '../config/database';
 import logger from '../config/logger';
@@ -133,6 +134,10 @@ function extractResumeEntities(resume: {
   };
 }
 
+// The interview page sends "still here" every 30 s; four missed in a row means it is gone.
+const ALIVE_SECONDS = 120;
+const aliveKey = (id: string) => `interview-alive:${id}`;
+
 export class InterviewService {
   static async create(input: CreateInterviewInput) {
     const roomId = uuidv4();
@@ -189,10 +194,43 @@ export class InterviewService {
     return interview;
   }
 
+  /** The interview page is open: keep this interview from being closed as abandoned. */
+  static async markAlive(id: string, user: UserContext) {
+    await redisClient.set(aliveKey(id), user.id, 'EX', ALIVE_SECONDS);
+  }
+
+  private static async closeAbandoned(where: { recruiterId: string } | { candidateId: string }) {
+    const open = await prisma.interview.findMany({
+      where: { ...where, status: 'IN_PROGRESS', startedAt: { lt: new Date(Date.now() - ALIVE_SECONDS * 1000) } },
+      select: { id: true },
+    });
+    if (open.length === 0) return;
+    let alive: number[];
+    try {
+      alive = await Promise.all(open.map((i) => redisClient.exists(aliveKey(i.id))));
+    } catch (error) {
+      // Without Redis we cannot tell a live session from a dead one: close nothing.
+      logger.warn({ error }, 'Could not check open interviews; none closed');
+      return;
+    }
+    const gone = open.filter((_, n) => alive[n] === 0).map((i) => i.id);
+    if (gone.length === 0) return;
+    await prisma.interview.updateMany({
+      where: { id: { in: gone }, status: 'IN_PROGRESS' },
+      data: { status: 'CANCELLED', endedAt: new Date() },
+    });
+    logger.info({ count: gone.length }, 'Closed abandoned interviews');
+  }
+
   static async getByUserId(userId: string, role: string) {
     const where = role === 'RECRUITER'
       ? { recruiterId: userId }
       : { candidateId: userId };
+
+    // An interview whose page has not been open for 2 minutes is closed as cancelled. Abandoned
+    // ones (tab closed, page left) used to stay "in progress" forever. The open page says it is
+    // still there every 30 s (markAlive); reading the list closes the ones that went quiet.
+    await this.closeAbandoned(where);
 
     return prisma.interview.findMany({
       where,
