@@ -672,9 +672,40 @@ export default function InterviewRoom() {
   }, [iv, conversationHistory]);
 
   // Start conversational interview
+  // While the interviewer's reply is on its way; and what to retry if it never came.
+  const [aiWaiting, setAiWaiting] = useState(false);
+  const [turnFailed, setTurnFailed] = useState<null | { kind: "greeting" } | { kind: "answer"; input: string }>(null);
+
+  // The backend already waits about 45 s for a waking AI service; one more try here covers a
+  // dropped connection. If that fails too, the page says so and offers Try again,
+  // instead of sitting on "…" (it used to fail silently).
+  const askInterviewer = useCallback(async (
+    payload: Parameters<typeof api.conversationalInterview>[0],
+    onFail: NonNullable<typeof turnFailed>,
+  ) => {
+    setAiWaiting(true);
+    setTurnFailed(null);
+    try {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await api.conversationalInterview(payload);
+        } catch (error) {
+          console.error("Interviewer reply failed", error);
+          if (attempt >= 1 || !mountedRef.current) {
+            if (mountedRef.current) setTurnFailed(onFail);
+            return null;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+        }
+      }
+    } finally {
+      if (mountedRef.current) setAiWaiting(false);
+    }
+  }, []);
+
   const startConversationalInterview = useCallback(async () => {
     try {
-      const response = await api.conversationalInterview({
+      const response = await askInterviewer({
         phase: interviewPhase,
         interviewer_name: interviewer.name,
         interviewer_title: interviewer.title,
@@ -692,8 +723,9 @@ export default function InterviewRoom() {
         conversation_history: conversationHistory,
         warmup_questions_asked: warmupQuestionsAsked,
         exchange_count: exchangeCount,
-      });
+      }, { kind: "greeting" });
 
+      if (!response) return;
       if (!mountedRef.current || interviewCancelledRef.current || finalizingInterviewRef.current) return;
 
       // Add AI response to conversation history
@@ -713,7 +745,7 @@ export default function InterviewRoom() {
     } catch (error) {
       console.error("Conversational interview error:", error);
     }
-  }, [interviewPhase, interviewer, iv, candidateName, conversationHistory, warmupQuestionsAsked, exchangeCount, resumeSummary, resumeField, questionIndex, followupsUsed, playQuestionAudio, getNextPhase]);
+  }, [interviewPhase, interviewer, iv, candidateName, conversationHistory, warmupQuestionsAsked, exchangeCount, resumeSummary, resumeField, questionIndex, followupsUsed, playQuestionAudio, getNextPhase, askInterviewer]);
 
   // Handle candidate response
   const handleCandidateResponse = useCallback(async (candidateInput: string) => {
@@ -732,7 +764,7 @@ export default function InterviewRoom() {
       }
 
       // Get AI response
-      const response = await api.conversationalInterview({
+      const response = await askInterviewer({
         phase: interviewPhase,
         interviewer_name: interviewer.name,
         interviewer_title: interviewer.title,
@@ -751,8 +783,13 @@ export default function InterviewRoom() {
         candidate_input: candidateInput,
         warmup_questions_asked: warmupQuestionsAsked,
         exchange_count: exchangeCount + 1,
-      });
+      }, { kind: "answer", input: candidateInput });
 
+      if (!response) {
+        // Undo this answer in the history, so Try again sends it once, not twice.
+        setConversationHistory(conversationHistory);
+        return;
+      }
       if (!mountedRef.current || interviewCancelledRef.current || finalizingInterviewRef.current) return;
 
       // Add AI response to conversation history
@@ -806,7 +843,7 @@ export default function InterviewRoom() {
     } catch (error) {
       console.error("Candidate response error:", error);
     }
-  }, [interviewPhase, interviewer, iv, candidateName, conversationHistory, warmupQuestionsAsked, exchangeCount, resumeSummary, resumeField, questionIndex, followupsUsed, closingTurnCount, playQuestionAudio, getNextPhase, completeInterviewSession]);
+  }, [interviewPhase, interviewer, iv, candidateName, conversationHistory, warmupQuestionsAsked, exchangeCount, resumeSummary, resumeField, questionIndex, followupsUsed, closingTurnCount, playQuestionAudio, getNextPhase, completeInterviewSession, askInterviewer]);
 
   // Trigger greeting once interview becomes in_progress — placed after all useCallbacks to avoid forward reference
   useEffect(() => {
@@ -938,7 +975,7 @@ export default function InterviewRoom() {
     { phase: "CLOSING", label: "Wrap-up", completed: false },
   ];
   const words = (transcript + interimTranscript).split(/\s+/).filter(Boolean).length;
-  const status = recording ? "Recording" : speaking ? `${interviewer.name} is speaking` : speakingDelay > 0 ? `Your turn in ${speakingDelay}` : "Your turn";
+  const status = recording ? "Recording" : speaking ? `${interviewer.name} is speaking` : aiWaiting ? `${interviewer.name} is thinking` : speakingDelay > 0 ? `Your turn in ${speakingDelay}` : "Your turn";
 
   return (
     <div className={`min-h-screen ${inSession ? "room" : ""}`}>
@@ -1011,9 +1048,27 @@ export default function InterviewRoom() {
           {/* Captions: what she said, then what you are saying */}
           <section className="mx-auto mt-6 max-w-3xl">
             <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{interviewer.name}</p>
-            <p className="mt-2 font-display text-[1.45rem] leading-snug md:text-[1.6rem]">
-              {currentAIMessage || "…"}
-            </p>
+            {turnFailed ? (
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <p className="text-[15px] text-muted-foreground">
+                  {interviewer.name} could not reply. The connection dropped or the server is waking up.
+                </p>
+                <Button size="sm" onClick={() => {
+                  const failed = turnFailed;
+                  setTurnFailed(null);
+                  if (failed.kind === "greeting") void startConversationalInterview();
+                  else void handleCandidateResponse(failed.input);
+                }}>
+                  Try again
+                </Button>
+              </div>
+            ) : (
+              <p className={`mt-2 font-display text-[1.45rem] leading-snug md:text-[1.6rem] ${aiWaiting ? "text-muted-foreground" : ""}`}>
+                {aiWaiting
+                  ? (conversationHistory.length === 0 ? `${interviewer.name} is joining…` : `${interviewer.name} is thinking…`)
+                  : currentAIMessage || "…"}
+              </p>
+            )}
 
             <div className="mt-6 border-t border-border pt-4">
               <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
@@ -1044,7 +1099,7 @@ export default function InterviewRoom() {
               Replay
             </Button>
             {!recording ? (
-              <Button onClick={startRecording} disabled={speaking || speakingDelay > 0 || submitting}>
+              <Button onClick={startRecording} disabled={speaking || aiWaiting || speakingDelay > 0 || submitting}>
                 Start answering
               </Button>
             ) : (

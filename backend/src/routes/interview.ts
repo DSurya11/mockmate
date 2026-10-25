@@ -1,4 +1,5 @@
 import { Router, Response } from 'express';
+import { callAiService } from '../config/aiService';
 import { z } from 'zod';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { InterviewService } from '../services/interviewService';
@@ -108,9 +109,7 @@ router.patch('/:id/complete', authenticate, validateParams(idParamSchema), async
 
 router.post('/conversational', authenticate, aiLimiter, validateBody(conversationalInterviewSchema), async (req: AuthRequest, res: Response) => {
   try {
-    const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://mockmate-ai:8000';
-    
-    const response = await fetch(`${aiServiceUrl}/api/interview/conversational`, {
+    const response = await callAiService('/api/interview/conversational', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

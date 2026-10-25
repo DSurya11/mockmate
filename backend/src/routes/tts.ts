@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { callAiService } from '../config/aiService';
 import crypto from 'crypto';
 import { authenticate } from '../middleware/auth';
 import logger from '../config/logger';
@@ -6,7 +7,6 @@ import redisClient from '../config/redis';
 
 const router = Router();
 
-const PIPER_URL = process.env.AI_SERVICE_URL || 'http://mockmate-ai:8000';
 
 router.post('/', authenticate, async (req: Request, res: Response): Promise<void> => {
   try {
@@ -29,7 +29,7 @@ router.post('/', authenticate, async (req: Request, res: Response): Promise<void
     }
 
     // Call AI Service TTS endpoint
-    const response = await fetch(`${PIPER_URL}/api/tts`, {
+    const response = await callAiService('/api/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, voice })

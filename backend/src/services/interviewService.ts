@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { callAiService } from '../config/aiService';
 import prisma from '../config/database';
 import logger from '../config/logger';
 import { config } from '../config';
@@ -290,8 +291,7 @@ export class InterviewService {
     let evaluation: Prisma.InputJsonObject | null = null;
     if (liveHistory.length > 0) {
       try {
-        const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://mockmate-ai:8000';
-        const evalRes = await fetch(`${aiServiceUrl}/api/interview/evaluate-conversation`, {
+        const evalRes = await callAiService('/api/interview/evaluate-conversation', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -436,7 +436,7 @@ export class InterviewService {
       
       // Limit to 4 follow-ups maximum (12 total questions), and only if answer is substantial
       if (totalQuestions < 12 && data.transcript.trim().length > 15 && currentFollowups < 4) {
-        const response = await fetch(`${config.aiService.url}/api/interview/followup`, {
+        const response = await callAiService('/api/interview/followup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -483,7 +483,7 @@ export class InterviewService {
       });
       const resumeContext = extractResumeEntities(latestResume);
 
-      const response = await fetch(`${config.aiService.url}/api/interview/questions`, {
+      const response = await callAiService('/api/interview/questions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
