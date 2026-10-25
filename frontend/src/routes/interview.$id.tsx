@@ -37,6 +37,9 @@ function speechPieces(text: string, limit = 190): string[] {
   return pieces;
 }
 
+// Length of each live-words piece sent to Whisper in browsers without speech recognition.
+const PREVIEW_PIECE_MS = 6000;
+
 const INTERVIEWERS = [
   { 
     id: "priya", 
@@ -126,6 +129,12 @@ export default function InterviewRoom() {
 
   // Refs that mirror transcript state so useCallback closures ([] deps) can read latest values
   const transcriptRef = useRef("");
+  // Live words in browsers without speech recognition (Firefox, Zen, Safari): short pieces of the
+  // answer go to Whisper while you speak. The full recording still gives the final transcript.
+  const previewRef = useRef<{ stop: () => void } | null>(null);
+  // An answer whose transcription failed twice: kept so it can be sent again, never dropped.
+  const failedAnswerRef = useRef<Blob | null>(null);
+  const [answerFailed, setAnswerFailed] = useState(false);
   const interimTranscriptRef = useRef("");
   // Ref to always-latest handleNext (avoids stale closures in setTimeout callbacks)
   const handleNextRef = useRef<((text?: string) => Promise<void>) | null>(null);
@@ -191,6 +200,7 @@ export default function InterviewRoom() {
     return () => {
       mountedRef.current = false;
       interviewActiveRef.current = false;
+      previewRef.current?.stop();
       if (mediaRecorderRef.current) {
         try { mediaRecorderRef.current.stop(); } catch {}
         mediaRecorderRef.current = null;
@@ -405,6 +415,8 @@ export default function InterviewRoom() {
     if (!mountedRef.current) return;
     
     setRecording(false);
+    previewRef.current?.stop();
+    previewRef.current = null;
 
     // Stop live transcript recognition
     if (speechRecognitionRef.current) {
@@ -545,45 +557,78 @@ export default function InterviewRoom() {
     };
     mr.start(1000); // chunk every second
     mediaRecorderRef.current = mr;
+    if (!SR) startWhisperPreview(mimeType);
+  }
+
+  function startWhisperPreview(mimeType: string) {
+    if (!streamRef.current) return;
+    const stream = new MediaStream(streamRef.current.getAudioTracks());
+    const pieces: string[] = [];
+    let active = true;
+    let next = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let current: MediaRecorder | null = null;
+    const piece = () => {
+      if (!active) return;
+      const n = next++;
+      const recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 32000 });
+      const parts: Blob[] = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) parts.push(e.data); };
+      recorder.onstop = () => {
+        if (!active) return;            // the answer ended: the full recording takes over
+        piece();                        // the next piece starts straight away
+        const blob = new Blob(parts, { type: mimeType });
+        if (blob.size < 3000) return;   // silence
+        api.transcribeAudio(blob).then(({ text }) => {
+          if (!active || !mountedRef.current || !text?.trim()) return;
+          pieces[n] = text.trim();
+          setInterimTranscript(pieces.filter(Boolean).join(" "));
+        }).catch(() => undefined);
+      };
+      recorder.start();
+      current = recorder;
+      timer = setTimeout(() => { if (recorder.state !== "inactive") recorder.stop(); }, PREVIEW_PIECE_MS);
+    };
+    piece();
+    previewRef.current = {
+      stop: () => {
+        active = false;
+        if (timer) clearTimeout(timer);
+        try { if (current && current.state !== "inactive") current.stop(); } catch { /* already stopped */ }
+      },
+    };
   }
 
   const handleRecordingComplete = useCallback(async (audioBlob: Blob) => {
     if (!mountedRef.current || interviewCancelledRef.current) return;
     setTranscribing(true);
-    try {
-      console.log("Uploading audio for transcription...");
-      const rawTranscription = await api.transcribeAudio(audioBlob) as {
-        text?: string;
-        transcript?: string;
-        language?: string;
-        duration?: number;
-      };
-      console.log("RAW TRANSCRIBE RESPONSE:", rawTranscription);
-
-      const parsedTranscript = rawTranscription.text ?? rawTranscription.transcript ?? "";
-      console.log("PARSED TRANSCRIPT:", parsedTranscript);
-      
-      // Update transcript state
-      console.log("UPDATING UI WITH:", parsedTranscript);
-      setTranscript(parsedTranscript);
-      setInterimTranscript("");
-      
-      // Submit IMMEDIATELY via ref (no countdown, no effect indirection — avoids stale closures)
-      // Fall back to browser SpeechRecognition if Whisper returned empty
-      const toSubmit = (parsedTranscript || transcriptRef.current || interimTranscriptRef.current).trim();
-      setTranscribing(false);
-      handleNextRef.current?.(toSubmit);
-      return;
-    } catch (error) {
-      console.error("Transcription failed:", error);
-      // Still submit with whatever the browser captured — do NOT freeze the interview
-      const fallback = (transcriptRef.current || interimTranscriptRef.current).trim();
-      setInterimTranscript(fallback ? "" : "Could not transcribe audio.");
-      setTranscribing(false);
-      handleNextRef.current?.(fallback);
-    } finally {
-      setTranscribing(false);
+    setAnswerFailed(false);
+    let text = "";
+    // Two tries at the accurate transcript of the whole answer.
+    for (let attempt = 0; attempt < 2 && !text; attempt++) {
+      try {
+        const result = await api.transcribeAudio(audioBlob) as { text?: string; transcript?: string };
+        text = (result.text ?? result.transcript ?? "").trim();
+      } catch (error) {
+        console.error("Transcription failed:", error);
+      }
+      if (!text && attempt === 0) await new Promise((resolve) => setTimeout(resolve, 1500));
     }
+    if (!mountedRef.current || interviewCancelledRef.current) return;
+    // Then what was caught live (browser recognition, or the Whisper pieces in Firefox).
+    const toSubmit = text || (transcriptRef.current + " " + interimTranscriptRef.current).trim();
+    setTranscribing(false);
+    if (!toSubmit) {
+      // Nothing usable: keep the recording and ask, instead of silently moving on (the
+      // interviewer used to just wait, which felt like being asked again).
+      failedAnswerRef.current = audioBlob;
+      setAnswerFailed(true);
+      return;
+    }
+    failedAnswerRef.current = null;
+    setTranscript(toSubmit);
+    setInterimTranscript("");
+    handleNextRef.current?.(toSubmit);
   }, []); // no deps — data stored in refs, handleNext invoked via ref
 
   const playQuestionAudio = useCallback(async (text: string, isReplay = false) => {
@@ -1006,6 +1051,7 @@ export default function InterviewRoom() {
 
   async function leaveInterview() {
     interviewCancelledRef.current = true;
+    previewRef.current?.stop();
     cleanupInterviewAudioState();
     try { mediaRecorderRef.current?.stop(); } catch { /* already stopped */ }
     try { sessionRecorderRef.current?.stop(); } catch { /* already stopped */ }
@@ -1023,7 +1069,7 @@ export default function InterviewRoom() {
     { phase: "CLOSING", label: "Wrap-up", completed: false },
   ];
   const words = (transcript + interimTranscript).split(/\s+/).filter(Boolean).length;
-  const status = recording ? "Recording" : speaking ? `${interviewer.name} is speaking` : aiWaiting ? `${interviewer.name} is thinking` : speakingDelay > 0 ? `Your turn in ${speakingDelay}` : "Your turn";
+  const status = recording ? "Recording" : transcribing ? "Reading your answer" : speaking ? `${interviewer.name} is speaking` : aiWaiting ? `${interviewer.name} is thinking` : speakingDelay > 0 ? `Your turn in ${speakingDelay}` : "Your turn";
 
   return (
     <div className={`min-h-screen ${inSession ? "room" : ""}`}>
@@ -1154,6 +1200,17 @@ export default function InterviewRoom() {
                   {submitting ? "Sending…" : transcribing ? "Transcribing…" : `${words} words`}
                 </span>
               </div>
+              {answerFailed && (
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-[15px] text-muted-foreground">
+                  <span>That answer could not be turned into text. It is kept:</span>
+                  <Button size="sm" onClick={() => { const blob = failedAnswerRef.current; if (blob) void handleRecordingComplete(blob); }}>
+                    Try again
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => { failedAnswerRef.current = null; setAnswerFailed(false); }}>
+                    Answer again
+                  </Button>
+                </div>
+              )}
               <p className="mt-2 min-h-[4.5rem] text-[15px] leading-relaxed">
                 {transcript || interimTranscript ? (
                   <>
@@ -1176,13 +1233,20 @@ export default function InterviewRoom() {
               Replay
             </Button>
             {!recording ? (
-              <Button onClick={startRecording} disabled={speaking || aiWaiting || speakingDelay > 0 || submitting}>
+              <Button onClick={startRecording} disabled={speaking || aiWaiting || transcribing || speakingDelay > 0 || submitting}>
                 Start answering
               </Button>
             ) : (
               <Button variant="destructive" onClick={stopRecording}>Stop</Button>
             )}
-            <Button variant="secondary" onClick={() => handleNext()} loading={submitting}>
+            <Button
+              variant="secondary"
+              onClick={() => handleNext()}
+              loading={submitting || transcribing}
+              // Next sends your answer. Nothing to send yet (and not the end): say so, do nothing.
+              disabled={aiWaiting || transcribing || (!recording && !transcript.trim() && !interimTranscript.trim() && interviewPhase !== "CLOSING")}
+              title={!recording && !transcript.trim() ? "Answer first: press Start answering" : undefined}
+            >
               {questionIndex === iv.questions.length - 1 ? "Finish" : "Next"}
             </Button>
           </div>

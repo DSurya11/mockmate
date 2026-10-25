@@ -2,9 +2,13 @@ import rateLimit from 'express-rate-limit';
 import logger from '../config/logger';
 
 // General API rate limiter
+// A voice interview makes several requests a turn (the reply, 2-3 voice clips, the
+// transcript, live words in Firefox, a heartbeat every 30 s). 100 per 15 minutes cut real
+// interviews off mid-way with 429s; 1,000 still stops abuse. Health and wake-up checks are free.
 export const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100,
+  max: 1000,
+  skip: (req) => req.path.startsWith('/health'),
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later' },
