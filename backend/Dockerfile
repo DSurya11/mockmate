@@ -16,4 +16,6 @@ COPY --from=builder /app/package.json ./
 COPY --from=builder /app/prisma ./prisma
 RUN mkdir -p uploads
 EXPOSE 5000
-CMD ["node", "dist/index.js"]
+# Apply pending migrations, then start. A failed migration is logged but does not keep the API
+# down: on an existing database that was set up another way, the old schema still works.
+CMD ["sh", "-c", "npx prisma migrate deploy || echo 'prisma migrate deploy failed: see above'; exec node dist/index.js"]

@@ -1,6 +1,6 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useEffect, useRef, useState, useCallback } from "react";
-import { api, type Interview } from "@/lib/mock-api";
+import { api, type Evaluation, type Interview } from "@/lib/mock-api";
 import { Button } from "@/components/ui-kit/Button";
 import { Logo } from "@/components/ui-kit/Logo";
 import { ScoreRing } from "@/components/charts/Charts";
@@ -59,6 +59,8 @@ export default function InterviewRoom() {
 
   // session UI state
   const [questionIndex, setQuestionIndex] = useState(0);
+  // Follow-ups the interviewer agent asked on the current question (the server caps them).
+  const [followupsUsed, setFollowupsUsed] = useState(0);
   const [transcript, setTranscript] = useState("");
   const [interimTranscript, setInterimTranscript] = useState("");
   // Keep refs in sync so deep callbacks can read latest without being in deps
@@ -652,6 +654,8 @@ export default function InterviewRoom() {
         candidate_field: resumeField,
         generated_questions: iv?.questions?.map(q => q.prompt) || [],
         question_index: questionIndex,
+        interview_id: iv?.id,
+        followups_used: followupsUsed,
         conversation_history: conversationHistory,
         warmup_questions_asked: warmupQuestionsAsked,
         exchange_count: exchangeCount,
@@ -676,7 +680,7 @@ export default function InterviewRoom() {
     } catch (error) {
       console.error("Conversational interview error:", error);
     }
-  }, [interviewPhase, interviewer, iv, candidateName, conversationHistory, warmupQuestionsAsked, exchangeCount, resumeSummary, resumeField, questionIndex, playQuestionAudio, getNextPhase]);
+  }, [interviewPhase, interviewer, iv, candidateName, conversationHistory, warmupQuestionsAsked, exchangeCount, resumeSummary, resumeField, questionIndex, followupsUsed, playQuestionAudio, getNextPhase]);
 
   // Handle candidate response
   const handleCandidateResponse = useCallback(async (candidateInput: string) => {
@@ -708,6 +712,8 @@ export default function InterviewRoom() {
         candidate_field: resumeField,
         generated_questions: iv?.questions?.map(q => q.prompt) || [],
         question_index: questionIndex,
+        interview_id: iv?.id,
+        followups_used: followupsUsed,
         conversation_history: newHistory,
         candidate_input: candidateInput,
         warmup_questions_asked: warmupQuestionsAsked,
@@ -725,12 +731,18 @@ export default function InterviewRoom() {
 
       if (!mountedRef.current || interviewCancelledRef.current || finalizingInterviewRef.current) return;
 
-      // Advance question index in CORE_QUESTIONS so the AI asks the next question
+      // In the core questions the interviewer agent decides: move on, or stay on this question
+      // for a follow-up or a repeat. Only "advance" moves to the next question.
       const totalQ = iv?.questions?.length || 0;
       let nextQIdx = questionIndex;
       if (interviewPhase === "CORE_QUESTIONS") {
-        nextQIdx = questionIndex + 1;
-        setQuestionIndex(nextQIdx);
+        if (response.advance !== false) {
+          nextQIdx = questionIndex + 1;
+          setQuestionIndex(nextQIdx);
+          setFollowupsUsed(0);
+        } else if (response.action === "follow_up") {
+          setFollowupsUsed(followupsUsed + 1);
+        }
       }
 
       // Compute next phase using updated question index
@@ -761,7 +773,7 @@ export default function InterviewRoom() {
     } catch (error) {
       console.error("Candidate response error:", error);
     }
-  }, [interviewPhase, interviewer, iv, candidateName, conversationHistory, warmupQuestionsAsked, exchangeCount, resumeSummary, resumeField, questionIndex, closingTurnCount, playQuestionAudio, getNextPhase, completeInterviewSession]);
+  }, [interviewPhase, interviewer, iv, candidateName, conversationHistory, warmupQuestionsAsked, exchangeCount, resumeSummary, resumeField, questionIndex, followupsUsed, closingTurnCount, playQuestionAudio, getNextPhase, completeInterviewSession]);
 
   // Trigger greeting once interview becomes in_progress — placed after all useCallbacks to avoid forward reference
   useEffect(() => {
@@ -1170,13 +1182,35 @@ function ReadyView({
   );
 }
 
-function ResultsView({ iv, interviewer, interviewPhase, exchangeCount, conversationHistory }: { 
+function ResultsView({ iv: completed, interviewer, interviewPhase, exchangeCount, conversationHistory }: { 
   iv: Interview; 
   interviewer: typeof INTERVIEWERS[0]; 
   interviewPhase: InterviewPhase; 
   exchangeCount: number; 
   conversationHistory: Array<{role: string, content: string}>; 
 }) {
+  const [iv, setIv] = useState(completed);
+  useEffect(() => setIv(completed), [completed]);
+  // No evaluation yet but a conversation to score: every free model was busy at completion,
+  // and the server retries for a few minutes. Check back until the score lands.
+  const scoringLater = !iv.evaluation && (iv.conversationHistory?.length ?? 0) > 0;
+  useEffect(() => {
+    if (!scoringLater) return;
+    let tries = 0;
+    const timer = setInterval(async () => {
+      tries += 1;
+      try {
+        const latest = await api.getInterview(iv.id);
+        if (latest.evaluation || tries >= 24) {
+          setIv(latest);
+          clearInterval(timer);
+        }
+      } catch {
+        if (tries >= 24) clearInterval(timer);
+      }
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [scoringLater, iv.id]);
   return (
     <div className="relative min-h-screen">
       <header className="border-b border-border bg-background/70 backdrop-blur-xl">
@@ -1237,6 +1271,14 @@ function ResultsView({ iv, interviewer, interviewPhase, exchangeCount, conversat
             </div>
           </div>
           
+          {iv.evaluation && <EvaluationCard evaluation={iv.evaluation} />}
+          {scoringLater && (
+            <div className="surface-card p-5 text-sm text-muted-foreground">
+              Scoring is delayed: the free AI models were busy when you finished. It is retried
+              automatically, and this page updates when the score is ready.
+            </div>
+          )}
+
           {/* Show conversation transcript */}
           <div className="surface-card p-5">
             <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -1299,4 +1341,50 @@ function FullPageError({ message }: { message: string }) {
 function getVideoDirHandle(): FileSystemDirectoryHandle | null {
   const win = window as Window & { __videoDirHandle?: FileSystemDirectoryHandle };
   return win.__videoDirHandle ?? null;
+}
+
+/** The rubric, each score with the candidate's own words as evidence, then what to practise. */
+function EvaluationCard({ evaluation }: { evaluation: Evaluation }) {
+  const label = (name: string) => name.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+  if (evaluation.status !== "scored") {
+    return (
+      <div className="surface-card p-5 text-sm text-muted-foreground">
+        {evaluation.status === "not_enough_to_assess"
+          ? "Not enough was said in this interview to assess it."
+          : "No score: none of the evidence could be found in your own words."}
+      </div>
+    );
+  }
+  return (
+    <div className="surface-card p-5">
+      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">How you did, with evidence</div>
+      <div className="mt-3 space-y-4">
+        {evaluation.dimensions.map((d) => (
+          <div key={d.name}>
+            <div className="flex items-baseline justify-between text-sm">
+              <span className="font-medium">{label(d.name)}</span>
+              <span className="text-muted-foreground">{d.score === null ? "not assessed" : `${d.score} / 5`}</span>
+            </div>
+            {d.reason && <p className="mt-1 text-sm text-foreground/80">{d.reason}</p>}
+            {d.quotes.map((q, i) => (
+              <blockquote key={i} className="mt-1 border-l-2 border-border pl-3 text-sm italic text-muted-foreground">"{q}"</blockquote>
+            ))}
+          </div>
+        ))}
+      </div>
+      {[["Strengths", evaluation.strengths], ["Gaps", evaluation.gaps], ["Practise next", evaluation.practice]].map(([title, items]) =>
+        (items as string[]).length > 0 && (
+          <div key={title as string} className="mt-4">
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{title as string}</div>
+            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground/85">
+              {(items as string[]).map((item, i) => <li key={i}>{item}</li>)}
+            </ul>
+          </div>
+        ))}
+      <p className="mt-4 text-xs text-muted-foreground">
+        Every quote above was checked against what you said; {evaluation.verification.quotes_rejected} that
+        were not in your words were dropped.
+      </p>
+    </div>
+  );
 }

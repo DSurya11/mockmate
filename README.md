@@ -38,11 +38,23 @@ PostgreSQL     Queue jobs
         Worker process (BullMQ)
                    │
                    ▼
-      AI Service (FastAPI + Groq) ← port 8000
+      AI Service (FastAPI) ← port 8000
         ├── gTTS  (MP3 audio)
         ├── Faster-Whisper (transcription)
-        └── Groq LLM  (conversation + evaluation)
+        └── LLM chain: Groq → Gemini → OpenRouter → Mistral (free tiers; every key of the
+            best model first, then the next model)
 ```
+
+## 🤖 Where the AI decides, and where code checks it
+
+| Part | The model decides | Code enforces |
+|------|-------------------|---------------|
+| Interviewer, after each answer (`ai-service/app/services/interviewer.py`) | follow up, repeat the question, or move on | the next question is the prepared text word for word; one question per turn; at most 2 follow-ups; "can you repeat that" is recognised by code; a follow-up may only credit the candidate with words they said |
+| Scoring (`ai-service/app/services/evaluator.py`) | a rubric score per dimension, with quotes as evidence | every quote must appear in the candidate's own words, or it is dropped (one retry if many are); lines trying to talk the grader into a score are excluded; too little said means "not enough to assess", not a made-up score |
+| Questions (`groq_service.generate_questions`) | 8 questions from the resume, or from the role | without a resume, a question claiming resume facts is asked again once, then replaced by a role question |
+| What gets scored | — | the conversation the server recorded turn by turn, never a transcript sent by the browser |
+| Testing it (`ai-service/simulate.py`) | — | scripted candidates (strong, weak, "repeat that", prompt injection, off-topic) run whole interviews against the real models; code checks every turn and that strong beats weak and injection changes nothing |
+| Outages (`ai-service/app/services/llm.py`) | — | rate limits, timeouts and empty replies move to the next free provider; with all of them down the interview continues on scripted lines, and the report worker scores it later (retries 20 s to 160 s apart) |
 
 ## 🚀 Tech Stack
 
@@ -50,7 +62,7 @@ PostgreSQL     Queue jobs
 |-------|-----------|
 | **Frontend** | Vite, React 19, React Router, TailwindCSS 4, Zustand, shadcn/ui |
 | **Backend** | Node.js, Express 5, TypeScript, Prisma ORM |
-| **AI Service** | Python 3.12, FastAPI, Groq (via OpenAI client) |
+| **AI Service** | Python 3.12, FastAPI, free LLM chain via the OpenAI client (Groq, Mistral, OpenRouter, Gemini) |
 | **TTS** | gTTS (Google Text-to-Speech) |
 | **Transcription** | Groq Whisper API (`whisper-large-v3-turbo`) — ~600ms latency |
 | **Database** | PostgreSQL 16 |
@@ -95,7 +107,7 @@ Copy the example and fill in your credentials:
 cp .env.example .env   # or create .env manually
 ```
 
-Minimum required in `.env`:
+Minimum required in `.env` (the other model keys in `.env.example` are optional fallbacks):
 ```env
 GROQ_API_KEY=your-groq-api-key-here
 JWT_SECRET=any-long-random-string
@@ -107,7 +119,8 @@ JWT_REFRESH_SECRET=another-long-random-string
 docker compose up --build -d
 ```
 
-**Wait 30-60 seconds** for all services to start. The DB migration runs automatically on first boot.
+**Wait 30-60 seconds** for all services to start. The backend applies pending database migrations
+(`prisma migrate deploy`) every time it starts.
 
 #### Step 3: Access the services
 - **Frontend UI:** `http://localhost:3000`
@@ -311,7 +324,6 @@ git push origin main
 ✅ frontend-build  — ESLint + Vite build
         ↓ (only if ALL pass)
 ✅ deploy
-   ├─ Force-sync fork to latest code
    ├─ Deploy Backend  → Render
    ├─ Deploy Frontend → Render
    └─ Deploy AI Service → Render

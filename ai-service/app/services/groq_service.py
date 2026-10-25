@@ -1,15 +1,10 @@
-import os
 import json
 import re
-import asyncio
 import logging
-from typing import Any, List, Optional
+from typing import Any, List
 from pydantic import ValidationError
 
-try:
-    from openai import AsyncOpenAI
-except ImportError:  # pragma: no cover - exercised only in lean local test environments
-    AsyncOpenAI = None
+from app.services import llm
 
 from app.models.schemas import (
     ResumeAnalysisResult,
@@ -18,34 +13,6 @@ from app.models.schemas import (
 )
 
 logger = logging.getLogger(__name__)
-
-API_KEY = os.getenv("GROQ_API_KEY")
-BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
-TIMEOUT_SECONDS = float(os.getenv("GROQ_TIMEOUT_SECONDS", "25"))
-MAX_RETRIES = int(os.getenv("GROQ_MAX_RETRIES", "2"))
-MODEL_CHAIN = [
-    m.strip()
-    for m in os.getenv(
-        "GROQ_MODEL_CHAIN",
-        "llama-3.3-70b-versatile,llama-3.1-8b-instant,gemma2-9b-it",
-    ).split(",")
-    if m.strip()
-]
-
-# Separate chain for real-time conversational responses — always prefer the best model
-CONVERSATIONAL_MODEL_CHAIN = [
-    m.strip()
-    for m in os.getenv(
-        "GROQ_CONVERSATIONAL_MODEL_CHAIN",
-        "llama-3.3-70b-versatile,llama-3.1-8b-instant",
-    ).split(",")
-    if m.strip()
-]
-
-if not API_KEY:
-    logger.error("Missing GROQ_API_KEY. AI calls will fail until configured.")
-
-client = AsyncOpenAI(api_key=API_KEY or "missing", base_url=BASE_URL) if AsyncOpenAI else None
 
 
 def _extract_json(text: str) -> str:
@@ -275,52 +242,9 @@ def _apply_quality_guardrails(payload: dict, quality: dict) -> dict:
 
 
 async def _call_with_retry(prompt: str, max_tokens: int = 2000, temperature: float = 0.0) -> str:
-    if not API_KEY:
-        raise Exception("Missing GROQ_API_KEY.")
-    if client is None:
-        raise Exception("Missing openai dependency.")
-
-    last_error: Optional[Exception] = None
-
-    for model_name in MODEL_CHAIN:
-        for attempt in range(MAX_RETRIES):
-            try:
-                logger.info(
-                    "Groq call: model=%s attempt=%s/%s",
-                    model_name,
-                    attempt + 1,
-                    MAX_RETRIES,
-                )
-                response = await asyncio.wait_for(
-                    client.chat.completions.create(
-                        model=model_name,
-                        messages=[{"role": "user", "content": prompt}],
-                        max_tokens=max_tokens,
-                        temperature=temperature,
-                        top_p=1,
-                    ),
-                    timeout=TIMEOUT_SECONDS,
-                )
-                return response.choices[0].message.content.strip()
-            except asyncio.TimeoutError as e:
-                last_error = e
-                logger.warning("Groq timeout on %s (attempt %s)", model_name, attempt + 1)
-            except Exception as e:
-                last_error = e
-                error_str = str(e)
-                if "404" in error_str or "not found" in error_str.lower():
-                    logger.warning("Model %s not available, trying next", model_name)
-                    break
-                is_rate_limit = "429" in error_str or "rate" in error_str.lower()
-                if is_rate_limit:
-                    delay = 2 ** attempt
-                    logger.warning("Rate limited on %s, retrying in %ss", model_name, delay)
-                    await asyncio.sleep(delay)
-                else:
-                    logger.error("Groq error on %s: %s", model_name, e)
-                    break
-
-    raise last_error or Exception("All retries and models exhausted")
+    """One prompt through the provider chain (app/services/llm.py)."""
+    return await llm.complete([{"role": "user", "content": prompt}], max_tokens=max_tokens,
+                              temperature=temperature)
 
 
 async def analyze_resume_text(raw_text: str) -> ResumeAnalysisResult:
@@ -377,16 +301,33 @@ async def generate_questions(job_role: str, interview_type: str, resume_text: st
         "MIXED": "realistic full-stack technical screen",
     }.get(interview_type, "realistic technical screen")
 
+    if resume_context:
+        reader = "Write questions that sound like a real engineer who read the candidate's resume and wants to dig deep into their architecture, scaling, and production readiness. "
+        stage_one = "Resume walkthrough and project overview"
+        grounding = (
+            "- ALL questions MUST be generated from the candidate's resume, projects, technologies used, architecture choices, deployment stack, etc.\n"
+        )
+        mentions = "At least 5 questions must directly mention a project, technology, tool, architecture decision, or scaling claim from the resume when available.\n"
+    else:
+        # Without a resume the model invented one ("Your resume mentions scaling Kafka to 2M msgs/sec").
+        reader = "You have NOT seen a resume and know nothing about the candidate's past work. "
+        stage_one = "Ask the candidate to pick a project of their own and walk you through it"
+        grounding = (
+            "- There is NO resume. Never say 'your resume', 'you mentioned' or claim anything about the candidate's past work. "
+            "Ask realistic questions for the role itself, inviting them to draw on their own experience.\n"
+        )
+        mentions = ""
+
     prompt = (
         "You are a REALISTIC senior backend/SDE interviewer at a top tech company or startup (like Mercor, HireVue, etc.). "
         "Your objective is to conduct a rigorous, highly technical screening round. "
-        "Write questions that sound like a real engineer who read the candidate's resume and wants to dig deep into their architecture, scaling, and production readiness. "
-        "Generate EXACTLY 8 interview questions for a " + job_role + " position.\n"
+        + reader
+        + "Generate EXACTLY 8 interview questions for a " + job_role + " position.\n"
         "Interview round: " + interview_round + "\n"
         "Rules:\n"
-        "- ALL questions MUST be generated from the candidate's resume, projects, technologies used, architecture choices, deployment stack, etc.\n"
-        "- The interview MUST naturally evolve through these 5 stages. Distribute the 8 questions across them:\n"
-        "  Stage 1: Resume walkthrough and project overview\n"
+        + grounding
+        + "- The interview MUST naturally evolve through these 5 stages. Distribute the 8 questions across them:\n"
+        "  Stage 1: " + stage_one + "\n"
         "  Stage 2: Architecture and implementation decisions\n"
         "  Stage 3: Debugging, scaling, concurrency, and bottlenecks\n"
         "  Stage 4: Production failures, monitoring, recovery, and deployment\n"
@@ -395,6 +336,7 @@ async def generate_questions(job_role: str, interview_type: str, resume_text: st
         "- Include realistic pressure in the question text, e.g., 'Why did you choose that?', 'What breaks if...?', 'How would you debug production failures...?'\n"
         "- FORBIDDEN QUESTIONS: Never ask generic theory, textbook prompts, HR filler, or random DSA. Do NOT ask 'What is Redis?', 'Explain DBMS', 'What is OOP?', etc.\n"
         "- Ask like a real interviewer who wants to verify ownership, depth, and honesty.\n"
+        "- Each question must stand on its own: the candidate may not have answered the one before it.\n"
         + context_block
         + "\nTarget resume entities and keywords to reference when relevant: "
         + (", ".join(resume_keywords[:30]) if resume_keywords else "none provided")
@@ -405,29 +347,72 @@ async def generate_questions(job_role: str, interview_type: str, resume_text: st
         "- \"difficulty\": one of EASY, MEDIUM, HARD (string)\n"
         "- \"idealAnswer\": a brief ideal answer outline 2-3 sentences (string)\n\n"
         "Mix of difficulties: 2 EASY, 4 MEDIUM, 2 HARD.\n"
-        "At least 5 questions must directly mention a project, technology, tool, architecture decision, or scaling claim from the resume when available.\n"
-        "At least 3 questions must be follow-up / challenge questions that push deeper on the candidate's answer or project claims.\n"
+        + mentions
+        + "At least 3 questions must be challenge questions that push on tradeoffs and failure modes.\n"
         "Return ONLY valid JSON. No markdown, no code fences, no explanation."
     )
 
-    text = await _call_with_retry(prompt, temperature=0.3)
-    data = _parse_json(text)
-
-    try:
-        validated = QuestionGenerationResponse.model_validate(data)
-    except ValidationError as e:
-        logger.error("Question generation validation failed: %s", e)
-        raise
-
-    if len(validated.questions) != 8:
-        raise ValueError(f"Expected 8 questions, got {len(validated.questions)}")
+    validated = await _generate_checked(prompt)
 
     if resume_keywords and sum(1 for q in validated.questions if any(keyword.lower() in q.text.lower() for keyword in resume_keywords)) < 4:
         validated = QuestionGenerationResponse.model_validate({
             "questions": _build_resume_fallback_questions(job_role, interview_type, resume_context, resume_keywords),
         })
 
+    if not resume_context:
+        # The prompt asks; this enforces. A question that claims a fact about the candidate is
+        # asked again once with the reason, and if the model repeats it, a role question replaces it.
+        claims = [q.text for q in validated.questions if _CLAIMS_ABOUT_CANDIDATE.search(q.text)]
+        if claims:
+            logger.warning("Questions claimed resume facts with no resume: %d, asking again", len(claims))
+            retry = prompt + (
+                "\n\nYour previous attempt broke the NO-resume rule with: " + json.dumps(claims[:3])
+                + ". Rewrite without claiming anything about the candidate's past.")
+            try:
+                validated = await _generate_checked(retry)
+            except (ValueError, ValidationError):
+                pass
+        spare = iter(_role_questions(job_role))
+        validated = QuestionGenerationResponse.model_validate({"questions": [
+            next(spare) if _CLAIMS_ABOUT_CANDIDATE.search(q.text) else q.model_dump()
+            for q in validated.questions
+        ]})
+
     return [q.model_dump() for q in validated.questions]
+
+
+# Things only a resume could tell: with no resume, a question saying them is made up.
+_CLAIMS_ABOUT_CANDIDATE = re.compile(
+    r"\b(your (resume|cv|profile)|you (mentioned|said|listed|noted|opted|claimed|stated|described|wrote)"
+    r"|in that (pipeline|project|system|setup))\b", re.IGNORECASE)
+
+
+async def _generate_checked(prompt: str) -> QuestionGenerationResponse:
+    data = _parse_json(await _call_with_retry(prompt, temperature=0.3))
+    try:
+        validated = QuestionGenerationResponse.model_validate(data)
+    except ValidationError as e:
+        logger.error("Question generation validation failed: %s", e)
+        raise
+    if len(validated.questions) != 8:
+        raise ValueError(f"Expected 8 questions, got {len(validated.questions)}")
+    return validated
+
+
+def _role_questions(job_role: str) -> List[dict]:
+    """Questions that need nothing but the role: the stand-ins for made-up resume questions."""
+    rows = [
+        ("Pick a project you worked on that is closest to a " + job_role + " role. What did you own, and what was the hardest decision you made?", "BEHAVIORAL", "EASY"),
+        ("For a service you would run as a " + job_role + ", how would you get a change from a commit to production safely, and how would you roll it back?", "TECHNICAL", "MEDIUM"),
+        ("A production service starts timing out after a deploy. Walk me through the first ten minutes of your debugging.", "TECHNICAL", "MEDIUM"),
+        ("Which three signals would you watch to know a system is healthy under load, and what would each one tell you?", "TECHNICAL", "MEDIUM"),
+        ("Traffic grows ten times in a month. What breaks first in a typical web service, and what would you change?", "SYSTEM_DESIGN", "HARD"),
+        ("Tell me about a technical choice you made that turned out to be wrong. How did you find out, and what did you do?", "BEHAVIORAL", "MEDIUM"),
+        ("Where do you keep secrets and configuration for an application, and what goes wrong with the usual shortcuts?", "TECHNICAL", "EASY"),
+        ("You have one week to make a fragile system production ready. What do you do first, and what do you leave out?", "SYSTEM_DESIGN", "HARD"),
+    ]
+    return [{"text": text, "category": category, "difficulty": difficulty, "idealAnswer": None}
+            for text, category, difficulty in rows]
 
 
 def _pick_keywords(keywords: List[str], count: int = 4) -> List[str]:
@@ -660,54 +645,8 @@ async def generate_followup(question: str, transcript: str, history: List[dict] 
 
 
 async def _call_with_retry_messages(messages: List[dict], max_tokens: int = 500) -> str:
-    """Chat completion with retry logic for conversational interviews."""
-    if not API_KEY:
-        raise Exception("Missing GROQ_API_KEY.")
-    if client is None:
-        raise Exception("Missing openai dependency.")
-
-    last_error: Optional[Exception] = None
-
-    for model_name in CONVERSATIONAL_MODEL_CHAIN:
-        for attempt in range(MAX_RETRIES):
-            try:
-                logger.info(
-                    "Groq chat call: model=%s attempt=%s/%s",
-                    model_name,
-                    attempt + 1,
-                    MAX_RETRIES,
-                )
-                response = await asyncio.wait_for(
-                    client.chat.completions.create(
-                        model=model_name,
-                        messages=messages,
-                        max_tokens=max_tokens,
-                        temperature=0.7,  # Slightly higher temperature for conversational responses
-                        top_p=1,
-                    ),
-                    timeout=TIMEOUT_SECONDS,
-                )
-                return response.choices[0].message.content.strip()
-            except asyncio.TimeoutError as e:
-                last_error = e
-                logger.warning("Groq timeout on %s (attempt %s)", model_name, attempt + 1)
-            except Exception as e:
-                last_error = e
-                error_str = str(e)
-                if "404" in error_str or "not found" in error_str.lower():
-                    logger.warning("Model %s not available, trying next", model_name)
-                    break
-                is_rate_limit = "429" in error_str or "rate" in error_str.lower()
-                if is_rate_limit:
-                    # TPM window is per-minute; waiting a few seconds won't help.
-                    # Fall through to the next (smaller/faster) model immediately.
-                    logger.warning("Rate limited on %s, falling back to next model", model_name)
-                    break
-                else:
-                    logger.error("Groq error on %s: %s", model_name, e)
-                    break
-
-    raise last_error or Exception("All retries and models exhausted")
+    """A conversation through the provider chain; a little warmth for the interviewer's voice."""
+    return await llm.complete(messages, max_tokens=max_tokens, temperature=0.7)
 
 
 async def chat_with_llm(messages: List[dict]) -> str:

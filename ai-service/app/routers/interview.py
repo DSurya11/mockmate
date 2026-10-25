@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import List
 from app.models.schemas import QuestionGenerationRequest, FollowupRequest
 from app.services.groq_service import generate_questions, generate_followup, chat_with_llm
+from app.services import evaluator, interviewer, llm
 
 router = APIRouter()
 
@@ -24,6 +25,7 @@ class ConversationalInterviewRequest(BaseModel):
     candidate_input: str | None = None  # Latest candidate message
     warmup_questions_asked: int = 0
     exchange_count: int = 0
+    followups_used: int = 0  # follow-ups already asked on the current question
 
 # Master Interview Prompt
 MASTER_PROMPT = """You are {INTERVIEWER_NAME}, a {INTERVIEWER_TITLE} at a tech company conducting a {INTERVIEW_TYPE} interview.
@@ -201,6 +203,19 @@ NEVER use bullet points, numbered lists, or any markdown formatting. Plain conve
 FINAL RULE: Count the question marks in your response before sending. If there is more than ONE question mark, remove questions until only one remains."""
 
 
+def _scripted_line(request: ConversationalInterviewRequest) -> str:
+    """What to say when no model can answer: plain, correct for the phase, one question at most."""
+    questions = request.generated_questions or []
+    if request.phase == "GREETING":
+        return (f"Hi, I'm {request.interviewer_name}, {request.interviewer_title}. Thanks for joining me "
+                "today. How are you doing?")
+    if request.phase == "CORE_QUESTIONS" and request.question_index < len(questions):
+        return f"Thanks. {questions[request.question_index]}"
+    if request.phase == "CLOSING":
+        return "Thank you for your time today. Is there anything you would like to ask me?"
+    return "Thanks for sharing that. Could you tell me a little more about your background?"
+
+
 @router.post("/questions")
 async def generate_interview_questions(request: QuestionGenerationRequest):
     """Generate interview questions based on job role and type."""
@@ -225,7 +240,17 @@ async def generate_interview_followup(request: FollowupRequest):
 
 @router.post("/conversational")
 async def conversational_interview(request: ConversationalInterviewRequest):
-    """Handle phase-based conversational interview using master prompt."""
+    """Handle phase-based conversational interview using master prompt.
+
+    In the core questions, once the candidate has answered a question, the interviewer agent
+    decides what to do next (app/services/interviewer.py) and tells the browser whether to
+    advance to the next question.
+    """
+    if request.phase == "CORE_QUESTIONS" and request.candidate_input and request.question_index >= 1:
+        try:
+            return await interviewer.decide(request)
+        except llm.LLMUnavailable as e:
+            raise HTTPException(status_code=503, detail=str(e))
     try:
         # Prepare the system prompt with all variables
         system_prompt = MASTER_PROMPT.replace("{INTERVIEWER_NAME}", request.interviewer_name)
@@ -275,13 +300,19 @@ async def conversational_interview(request: ConversationalInterviewRequest):
             # Synthetic trigger for first message
             messages.append({"role": "user", "content": "[Interview session started. Begin with Phase 1: GREETING. Speak first.]"})
         
-        # Get AI response
-        response = await chat_with_llm(messages)
+        # Get AI response. With every provider rate-limited, a scripted line for the phase keeps
+        # the interview going instead of stopping it with an error.
+        try:
+            response = await chat_with_llm(messages)
+        except llm.LLMUnavailable:
+            response = _scripted_line(request)
         
         return {
             "response": response,
             "phase": request.phase,
-            "nextPhase": None  # Frontend will determine this
+            "nextPhase": None,  # Frontend will determine this
+            "action": None,
+            "advance": True,
         }
         
     except Exception as e:
@@ -296,80 +327,12 @@ class ConversationEvaluationRequest(BaseModel):
 
 @router.post("/evaluate-conversation")
 async def evaluate_conversation(req: ConversationEvaluationRequest):
-    """
-    Evaluates a completed conversational interview by pairing each interviewer
-    question with the candidate's reply, scoring each pair, and returning a
-    weighted overall score (0-100).
-    """
+    """Scores the whole interview against a rubric for its type. Every score must quote the
+    candidate's own words, and code checks each quote against the transcript
+    (app/services/evaluator.py)."""
     try:
-        from app.services.groq_service import _call_with_retry, _extract_json, _parse_json
-
-        # Extract (question, answer) pairs from conversation history.
-        # Skip small-talk phases (greeting, name, agenda) — only score substantive exchanges.
-        pairs = []
-        history = req.conversation_history
-        SKIP_KEYWORDS = [
-            "how are you", "your name", "get started", "today's session",
-            "structure", "any questions", "take care", "great talking",
-            "nice to meet", "sounds good", "my name is"
-        ]
-
-        for i in range(len(history) - 1):
-            if history[i]["role"] == "assistant" and history[i + 1]["role"] == "user":
-                question = history[i]["content"].strip()
-                answer = history[i + 1]["content"].strip()
-                # Skip very short answers (filler) and non-technical small talk
-                if len(answer.split()) < 4:
-                    continue
-                if any(kw in question.lower() for kw in SKIP_KEYWORDS):
-                    continue
-                pairs.append({"question": question, "answer": answer})
-
-        if not pairs:
-            return {"overallScore": None, "scoredExchanges": 0, "breakdown": []}
-
-        # Score each substantive exchange (cap at 6 to stay within token limits)
-        pairs_to_score = pairs[-6:] if len(pairs) > 6 else pairs
-
-        scored = []
-        for pair in pairs_to_score:
-            prompt = (
-                f"You are evaluating a {req.interview_type} interview for the role of {req.job_role}.\n\n"
-                f"Interviewer Question:\n{pair['question']}\n\n"
-                f"Candidate Answer:\n{pair['answer']}\n\n"
-                "Score this answer on three dimensions (each 0-100):\n"
-                "- technicalScore: accuracy, depth, relevance to the question\n"
-                "- communicationScore: clarity, structure, conciseness\n"
-                "- overallScore: weighted combination (technical 60%, communication 40%)\n\n"
-                "Be strict. Vague or filler answers should score below 30.\n"
-                "Return ONLY valid JSON: "
-                '{"technicalScore": <number>, "communicationScore": <number>, "overallScore": <number>}'
-            )
-            try:
-                raw = await _call_with_retry(prompt, max_tokens=120, temperature=0.0)
-                data = _parse_json(raw)
-                overall = data.get("overallScore")
-                if isinstance(overall, (int, float)) and 0 <= overall <= 100:
-                    scored.append({
-                        "question": pair["question"][:80] + "..." if len(pair["question"]) > 80 else pair["question"],
-                        "technicalScore": data.get("technicalScore"),
-                        "communicationScore": data.get("communicationScore"),
-                        "overallScore": overall,
-                    })
-            except Exception:
-                continue  # Skip exchanges that fail — don't crash the whole evaluation
-
-        if not scored:
-            return {"overallScore": None, "scoredExchanges": 0, "breakdown": []}
-
-        avg_overall = round(sum(s["overallScore"] for s in scored) / len(scored), 1)
-
-        return {
-            "overallScore": avg_overall,
-            "scoredExchanges": len(scored),
-            "breakdown": scored,
-        }
-
+        return await evaluator.evaluate(req.conversation_history, req.job_role, req.interview_type)
+    except llm.LLMUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Conversation evaluation failed: {e}")
-

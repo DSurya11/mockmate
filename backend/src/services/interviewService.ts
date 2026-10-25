@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import logger from '../config/logger';
 import { config } from '../config';
@@ -281,23 +282,28 @@ export class InterviewService {
     const avgComm = avg(answers.filter(a => typeof a.communicationScore === 'number'), 'communicationScore');
     const avgConfidence = avg(answers.filter(a => typeof a.confidenceScore === 'number'), 'confidenceScore');
 
-    // Conversational interview scoring path — call AI service if conversation history is provided
+    // Conversational scoring uses only the conversation the server recorded turn by turn
+    // (recordTurn). A transcript sent by the browser could be made up, so it is never scored.
+    const liveHistory = (((interview.report as any)?.liveHistory) ?? []) as Array<{ role: string; content: string }>;
     let conversationalScore: number | null = null;
     let scoredExchanges = 0;
-    if (body?.conversationHistory && body.conversationHistory.length > 0) {
+    // The rubric, its quoted evidence and the practice plan, kept for the results page.
+    let evaluation: Prisma.InputJsonObject | null = null;
+    if (liveHistory.length > 0) {
       try {
         const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://mockmate-ai:8000';
         const evalRes = await fetch(`${aiServiceUrl}/api/interview/evaluate-conversation`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            conversation_history: body.conversationHistory,
-            job_role: body.jobRole || interview.jobRole,
-            interview_type: body.interviewType || interview.type,
+            conversation_history: liveHistory,
+            job_role: body?.jobRole || interview.jobRole,
+            interview_type: body?.interviewType || interview.type,
           }),
         });
         if (evalRes.ok) {
           const evalData = await evalRes.json() as { overallScore: number | null; scoredExchanges: number };
+          evaluation = evalData as unknown as Prisma.InputJsonObject;
           if (typeof evalData.overallScore === 'number') {
             conversationalScore = Math.round(evalData.overallScore * 100) / 100;
             scoredExchanges = evalData.scoredExchanges;
@@ -332,8 +338,8 @@ export class InterviewService {
             : (scoredOverall.length === 0 ? 'pending' : 'partial'),
         },
         // Persist conversation history so results page can display it when revisited
-        report: body?.conversationHistory?.length
-          ? { conversationHistory: body.conversationHistory, savedAt: new Date().toISOString() }
+        report: liveHistory.length
+          ? { conversationHistory: liveHistory, liveHistory, evaluation, savedAt: new Date().toISOString() }
           : undefined,
       },
     });
@@ -345,6 +351,18 @@ export class InterviewService {
 
     logger.info({ interviewId: id, totalScore }, 'Interview completed');
     return result;
+  }
+
+  /** Keep the conversation on the server as it happens: completion scores this record,
+   *  never a transcript sent by the browser. */
+  static async recordTurn(id: string, user: UserContext, candidateInput: string | undefined, reply: string) {
+    const interview = await this.getByIdForUser(id, user);
+    if (!interview || interview.status !== 'IN_PROGRESS') return;
+    const report = (interview.report && typeof interview.report === 'object' ? interview.report : {}) as Record<string, any>;
+    const live: Array<{ role: string; content: string }> = Array.isArray(report.liveHistory) ? report.liveHistory : [];
+    if (candidateInput) live.push({ role: 'user', content: candidateInput });
+    live.push({ role: 'assistant', content: reply });
+    await prisma.interview.update({ where: { id }, data: { report: { ...report, liveHistory: live } } });
   }
 
   static async submitAnswer(questionId: string, user: UserContext, data: {
@@ -525,15 +543,17 @@ export class InterviewService {
   }
 
   private static async createDefaultQuestions(interviewId: string, jobRole: string, type: string) {
+    // Used when the AI service cannot generate questions. They need nothing but the role, so
+    // they never claim resume facts (the old set asked everyone about this app's own code).
     const defaultQuestions = [
-      { text: `Tell me about a project on your resume and the most important tradeoff you made.`, category: 'BEHAVIORAL' as const, difficulty: 'EASY' as const },
-      { text: `You mentioned ${jobRole}. Which part of that work would you defend most strongly in a design review?`, category: 'TECHNICAL' as const, difficulty: 'EASY' as const },
-      { text: `Walk me through one architecture decision from your resume and what would break if it were removed.`, category: 'BEHAVIORAL' as const, difficulty: 'MEDIUM' as const },
-      { text: `If I pushed on the queueing, database, or websocket layer in your project, what bottleneck would show up first?`, category: 'TECHNICAL' as const, difficulty: 'MEDIUM' as const },
-      { text: `How would you debug a production issue where your AI evaluation jobs are delayed but still completing?`, category: 'TECHNICAL' as const, difficulty: 'MEDIUM' as const },
-      { text: `Design the weakest part of your current interview platform so it survives a 10x traffic spike.`, category: 'SYSTEM_DESIGN' as const, difficulty: 'HARD' as const },
-      { text: `Tell me about a time a technical choice you made turned out to be wrong, and how you proved it.`, category: 'BEHAVIORAL' as const, difficulty: 'MEDIUM' as const },
-      { text: `What would be the first thing you would rewrite if you had to take this project to production next week?`, category: 'TECHNICAL' as const, difficulty: 'HARD' as const },
+      { text: `Pick a project you worked on that is closest to a ${jobRole} role. What did you own, and what was the hardest decision you made?`, category: 'BEHAVIORAL' as const, difficulty: 'EASY' as const },
+      { text: `For a service you would run as a ${jobRole}, how would you get a change from a commit to production safely, and how would you roll it back?`, category: 'TECHNICAL' as const, difficulty: 'MEDIUM' as const },
+      { text: `A production service starts timing out after a deploy. Walk me through the first ten minutes of your debugging.`, category: 'TECHNICAL' as const, difficulty: 'MEDIUM' as const },
+      { text: `Which three signals would you watch to know a system is healthy under load, and what would each one tell you?`, category: 'TECHNICAL' as const, difficulty: 'MEDIUM' as const },
+      { text: `Traffic grows ten times in a month. What breaks first in a typical web service, and what would you change?`, category: 'SYSTEM_DESIGN' as const, difficulty: 'HARD' as const },
+      { text: `Tell me about a technical choice you made that turned out to be wrong. How did you find out, and what did you do?`, category: 'BEHAVIORAL' as const, difficulty: 'MEDIUM' as const },
+      { text: `Where do you keep secrets and configuration for an application, and what goes wrong with the usual shortcuts?`, category: 'TECHNICAL' as const, difficulty: 'EASY' as const },
+      { text: `You have one week to make a fragile system production ready. What do you do first, and what do you leave out?`, category: 'SYSTEM_DESIGN' as const, difficulty: 'HARD' as const },
     ];
 
     for (let i = 0; i < defaultQuestions.length; i++) {

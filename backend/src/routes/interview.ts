@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { InterviewService } from '../services/interviewService';
 import { aiLimiter } from '../middleware/rateLimiter';
+import logger from '../config/logger';
 import { validateBody, validateParams } from '../middleware/validate';
 
 const router = Router();
@@ -39,6 +40,9 @@ const conversationalInterviewSchema = z.object({
   candidate_input: z.string().optional(),
   warmup_questions_asked: z.number().int().default(0),
   exchange_count: z.number().int().default(0),
+  followups_used: z.number().int().min(0).default(0),
+  // The interview the turn belongs to: the server records the conversation itself.
+  interview_id: z.string().uuid().optional(),
 });
 
 router.post('/', authenticate, validateBody(createInterviewSchema), async (req: AuthRequest, res: Response) => {
@@ -118,7 +122,13 @@ router.post('/conversational', authenticate, aiLimiter, validateBody(conversatio
       throw new Error(`AI service error: ${response.statusText}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as { response?: string };
+    if (req.body.interview_id && data.response) {
+      // Recorded here, not trusted from the browser later. A failed save must not break the turn.
+      await InterviewService.recordTurn(req.body.interview_id, { id: req.user!.id, role: req.user!.role },
+        req.body.candidate_input, data.response)
+        .catch((err) => logger.warn({ err, interviewId: req.body.interview_id }, 'Could not record interview turn'));
+    }
     res.json(data);
   } catch (error: any) {
     console.error('Conversational interview error:', error);

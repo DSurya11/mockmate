@@ -43,6 +43,18 @@ type Interview = {
   score?: number;
   questions: Question[];
   conversationHistory?: Array<{role: string; content: string}>;
+  evaluation?: Evaluation | null;
+};
+
+/** The rubric evaluation: each score stands on quotes code found in the candidate's words. */
+type Evaluation = {
+  overallScore: number | null;
+  status: "scored" | "no_evidence" | "not_enough_to_assess";
+  dimensions: Array<{ name: string; score: number | null; quotes: string[]; reason: string }>;
+  strengths: string[];
+  gaps: string[];
+  practice: string[];
+  verification: { quotes_kept: number; quotes_rejected: number; attempts: number; manipulation_attempts?: number };
 };
 
 export const api = {
@@ -93,6 +105,7 @@ export const api = {
       createdAt: iv.createdAt,
       score: iv.totalScore,
       conversationHistory: (iv.report as any)?.conversationHistory || [],
+      evaluation: (iv.report as any)?.evaluation || null,
       questions: iv.questions?.map((q: any) => ({
         id: q.id,
         prompt: q.questionText,
@@ -235,7 +248,9 @@ export const api = {
     candidate_input?: string;
     warmup_questions_asked?: number;
     exchange_count?: number;
-  }) {
+    interview_id?: string;
+    followups_used?: number;
+  }): Promise<{ response: string; action?: "next" | "follow_up" | "repeat" | null; advance?: boolean }> {
     // Uses apiClient so a 401 (token expiry mid-interview) silently refreshes and retries
     return apiClient.post('/interviews/conversational', payload);
   },
@@ -248,4 +263,4 @@ export const api = {
   },
 };
 
-export type { User, Resume, Interview, Question };
+export type { User, Resume, Interview, Question, Evaluation };
