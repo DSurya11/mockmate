@@ -1,4 +1,5 @@
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { motion, useReducedMotion } from "motion/react";
 import { SlidingNumber } from "@/components/animate-ui/primitives/texts/sliding-number";
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -265,6 +266,17 @@ export default function InterviewRoom() {
     }, 2000);
     return () => clearInterval(timer);
   }, [waitingForQuestions, id]);
+
+  // "Still here", every 30 s while the interview is open: one that goes quiet for 2 minutes is
+  // closed as abandoned when the interview list is next read.
+  const inSessionNow = iv?.status === "in_progress";
+  useEffect(() => {
+    if (!inSessionNow || !id) return;
+    const beat = () => { api.markInterviewAlive(id).catch(() => undefined); };
+    beat();
+    const timer = setInterval(beat, 30000);
+    return () => clearInterval(timer);
+  }, [inSessionNow, id]);
 
   // Load resume data to enrich the conversational interview context
   useEffect(() => {
@@ -697,10 +709,11 @@ export default function InterviewRoom() {
   // Start conversational interview
   // While the interviewer's reply is on its way; and what to retry if it never came.
   const [aiWaiting, setAiWaiting] = useState(false);
+  const [aiSlow, setAiSlow] = useState(false);
   const [turnFailed, setTurnFailed] = useState<null | { kind: "greeting" } | { kind: "answer"; input: string }>(null);
 
-  // The backend already waits about 45 s for a waking AI service; one more try here covers a
-  // dropped connection. If that fails too, the page says so and offers Try again,
+  // The backend already waits up to 100 s for a waking AI service; two more tries here cover a
+  // dropped connection. If those fail too, the page says so and offers Try again,
   // instead of sitting on "…" (it used to fail silently).
   const askInterviewer = useCallback(async (
     payload: Parameters<typeof api.conversationalInterview>[0],
@@ -708,13 +721,14 @@ export default function InterviewRoom() {
   ) => {
     setAiWaiting(true);
     setTurnFailed(null);
+    const slow = setTimeout(() => { if (mountedRef.current) setAiSlow(true); }, 8000);
     try {
       for (let attempt = 0; ; attempt++) {
         try {
           return await api.conversationalInterview(payload);
         } catch (error) {
           console.error("Interviewer reply failed", error);
-          if (attempt >= 1 || !mountedRef.current) {
+          if (attempt >= 2 || !mountedRef.current) {
             if (mountedRef.current) setTurnFailed(onFail);
             return null;
           }
@@ -722,7 +736,8 @@ export default function InterviewRoom() {
         }
       }
     } finally {
-      if (mountedRef.current) setAiWaiting(false);
+      clearTimeout(slow);
+      if (mountedRef.current) { setAiWaiting(false); setAiSlow(false); }
     }
   }, []);
 
@@ -989,6 +1004,16 @@ export default function InterviewRoom() {
   const currentAIMessage = conversationHistory[conversationHistory.length - 1]?.content || "";
   const progressPct = ((exchangeCount + (recording ? 0.5 : 0)) / 20) * 100; // Estimate 20 exchanges total
 
+  async function leaveInterview() {
+    interviewCancelledRef.current = true;
+    cleanupInterviewAudioState();
+    try { mediaRecorderRef.current?.stop(); } catch { /* already stopped */ }
+    try { sessionRecorderRef.current?.stop(); } catch { /* already stopped */ }
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    if (iv) await api.cancelInterview(iv.id).catch((error) => console.error("Could not cancel interview", error));
+    navigate("/dashboard/interviews");
+  }
+
   const steps = [
     { phase: "GREETING", label: "Welcome", completed: exchangeCount > 0 },
     { phase: "SMALL_TALK", label: "Small talk", completed: exchangeCount > 3 },
@@ -1019,7 +1044,30 @@ export default function InterviewRoom() {
               </span>
             )}
             {!inSession && <ThemeToggle />}
-            <Link to="/dashboard"><Button variant="ghost" size="sm">Leave</Button></Link>
+            {inSession ? (
+              // Leaving mid-interview ends it, as switching tabs already did; it used to stay
+              // "in progress" forever in the list.
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="ghost" size="sm">Leave</Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="room border-border">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>End this interview?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      It will be marked as cancelled and will not be scored.
+                      {keepRecording ? " The video so far will not be kept." : ""} To get a score, carry on to the wrap-up.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Keep going</AlertDialogCancel>
+                    <AlertDialogAction onClick={leaveInterview}>End interview</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            ) : (
+              <Link to="/dashboard"><Button variant="ghost" size="sm">Leave</Button></Link>
+            )}
           </div>
         </div>
         {inSession && (
@@ -1038,7 +1086,7 @@ export default function InterviewRoom() {
       </header>
 
       {!inSession ? (
-        <ReadyView iv={iv} onStart={handleStart} loading={submitting} />
+        <ReadyView iv={iv} onStart={handleStart} loading={submitting} interviewerName={interviewer.name} />
       ) : (
         <main className="mx-auto max-w-[1400px] px-4 pb-8 pt-5 lg:px-5">
           <div className="grid gap-3 md:grid-cols-2">
@@ -1075,7 +1123,7 @@ export default function InterviewRoom() {
             {turnFailed ? (
               <div className="mt-2 flex flex-wrap items-center gap-3">
                 <p className="text-[15px] text-muted-foreground">
-                  {interviewer.name} could not reply. The connection dropped or the server is waking up.
+                  {interviewer.name} could not reply: the server did not answer for over a minute.
                 </p>
                 <Button size="sm" onClick={() => {
                   const failed = turnFailed;
@@ -1091,6 +1139,11 @@ export default function InterviewRoom() {
                 {aiWaiting
                   ? (conversationHistory.length === 0 ? `${interviewer.name} is joining…` : `${interviewer.name} is thinking…`)
                   : currentAIMessage || "…"}
+              </p>
+            )}
+            {aiWaiting && aiSlow && !turnFailed && (
+              <p className="mt-2 text-sm text-muted-foreground">
+                The free server sleeps when nobody has used it for a while; waking it takes up to a minute.
               </p>
             )}
 
@@ -1164,11 +1217,20 @@ function ReadyView({
   iv,
   onStart,
   loading,
+  interviewerName,
 }: {
   iv: Interview;
   onStart: () => void;
   loading: boolean;
+  interviewerName: string;
 }) {
+  // Wake the interviewer while you read this page, so the greeting is quick after Begin.
+  const [ready, setReady] = useState<boolean | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.interviewerReady().then((ok) => live && setReady(ok)).catch(() => live && setReady(false));
+    return () => { live = false; };
+  }, []);
   return (
     <main className="relative z-10 mx-auto grid max-w-3xl place-items-center px-6 py-16 text-center">
       <div className="surface-card w-full p-10 shadow-elegant">
@@ -1208,6 +1270,14 @@ function ReadyView({
             Begin interview →
           </Button>
         </div>
+        <p className="mt-4 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+          <span className={`h-1.5 w-1.5 rounded-full ${ready ? "bg-success" : ready === false ? "bg-warning" : "bg-muted-foreground animate-pulse"}`} />
+          {ready
+            ? `${interviewerName} is ready.`
+            : ready === false
+              ? `${interviewerName} is still waking up; you can begin, the greeting may take a minute.`
+              : `Getting ${interviewerName} ready… the free server can take up to a minute to wake.`}
+        </p>
       </div>
     </main>
   );

@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { motion, useReducedMotion } from 'motion/react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '@/lib/mock-api'
 import { Button } from '@/components/ui-kit/Button'
 import { Field } from '@/components/ui-kit/Field'
@@ -31,6 +31,8 @@ export default function PracticeTab() {
   // Start button silently did nothing. It also saved audio only, one file overwriting the next.
   const [keepRecording, setKeepRecording] = useState(false)
   const still = useReducedMotion()
+  // Start waking the interviewer while the role and format are picked.
+  useEffect(() => { api.interviewerReady().catch(() => undefined) }, [])
 
   async function start() {
     setSubmitting(true)

@@ -1,4 +1,5 @@
 import express from 'express';
+import { aiServiceReady } from './config/aiService';
 import http from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -124,6 +125,12 @@ app.get('/api/health/wake', (req, res) => {
   const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://mockmate-ai:8000';
   fetch(`${aiServiceUrl}/health`).catch(() => undefined);
   res.json({ status: 'waking' });
+});
+
+// Waits (up to ~100 s) until the AI service answers. The pre-interview page calls it so the
+// interviewer is awake before Begin, and says "Getting Priya ready" meanwhile.
+app.get('/api/health/ai', async (req, res) => {
+  res.json({ ready: await aiServiceReady() });
 });
 
 // API routes

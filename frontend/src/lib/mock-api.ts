@@ -141,6 +141,15 @@ export const api = {
     await apiClient.patch<any>(`/interviews/${id}/start`);
     return this.getInterview(id);
   },
+  /** Every 30 s while the interview page is open; one gone quiet for 2 minutes is closed. */
+  async markInterviewAlive(id: string) {
+    await apiClient.post(`/interviews/${id}/alive`, {});
+  },
+  /** Waits until the AI service is awake (the free server sleeps after 15 idle minutes). */
+  async interviewerReady(): Promise<boolean> {
+    const result = await apiClient.get<{ ready: boolean }>('/health/ai');
+    return result.ready;
+  },
   async cancelInterview(id: string) {
     await apiClient.patchWithOptions<any>(`/interviews/${id}/cancel`, undefined, {
       keepalive: true,
