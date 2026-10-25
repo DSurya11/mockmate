@@ -54,6 +54,7 @@ PostgreSQL     Queue jobs
 | Questions (`groq_service.generate_questions`) | 8 questions from the resume, or from the role | without a resume, a question claiming resume facts is asked again once, then replaced by a role question |
 | What gets scored | — | the conversation the server recorded turn by turn, never a transcript sent by the browser |
 | Testing it (`ai-service/simulate.py`) | — | scripted candidates (strong, weak, "repeat that", prompt injection, off-topic) run whole interviews against the real models; code checks every turn and that strong beats weak and injection changes nothing |
+| Voice (`ai-service/app/services/voice.py`) | — | the most natural free engine that can answer now: Groq Orpheus → Deepgram Aura-2 → MeloTTS (Cloudflare Workers AI) → Google Translate's voice; an engine over its daily limit rests; text is cut only at sentence ends, and the page plays the first sentence while the rest are made |
 | Outages (`ai-service/app/services/llm.py`) | — | rate limits, timeouts and empty replies move to the next free provider; with all of them down the interview continues on scripted lines, and the report worker scores it later (retries 20 s to 160 s apart) |
 
 ## 🚀 Tech Stack

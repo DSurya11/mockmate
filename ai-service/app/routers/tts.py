@@ -1,35 +1,23 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
-from gtts import gTTS
-import io
+
+from app.services import voice
 
 router = APIRouter()
 
-# gTTS does not support named voices (those are Piper TTS format).
-# We map each interviewer voice to a distinct regional accent via the tld parameter
-# so Alex, Marcus, and Sarah sound audibly different.
-VOICE_ACCENT_MAP = {
-    "en_US-ryan-high":  "com",     # American accent  — Priya
-    "en_US-joe-medium": "co.uk",   # British accent   — Jordan
-    "en_US-amy-low":    "com.au",  # Australian accent — Sarah
-}
 
 class TTSRequest(BaseModel):
     text: str
-    voice: str = "en_US-ryan-high"
+    voice: str = voice.DEFAULT_VOICE
+
 
 @router.post("/tts")
 async def synthesize(req: TTSRequest):
+    """The interviewer's line as audio, from the most natural engine that can answer now.
+    X-Voice-Engine says which one, so the backend caches only the good ones."""
     try:
-        tld = VOICE_ACCENT_MAP.get(req.voice, "com")
-        tts = gTTS(text=req.text, lang='en', tld=tld, slow=False)
-
-        buf = io.BytesIO()
-        tts.write_to_fp(buf)
-        buf.seek(0)
-
-        return Response(content=buf.read(), media_type="audio/mpeg")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+        audio, media_type, engine = await voice.speak(req.text, req.voice)
+    except voice.VoiceUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error))
+    return Response(content=audio, media_type=media_type, headers={"X-Voice-Engine": engine})

@@ -72,7 +72,7 @@ export default function OverviewTab() {
         <div>
           <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Overview</div>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight md:text-4xl">
-            Welcome back, {user?.name.split(' ')[0]} <span className="text-gradient">·</span>
+            Welcome back, {user?.name.split(' ')[0]}
           </h1>
           <p className="mt-1.5 text-sm text-muted-foreground">
             Here's how your interview prep is trending this week.
@@ -87,7 +87,7 @@ export default function OverviewTab() {
         <StatCard
           label="Total interviews"
           value={data?.totalInterviews ?? '—'}
-          delta={data?.totalInterviews > 0 ? '+1 this week' : 'New account'}
+          delta={(data?.totalInterviews ?? 0) > 0 ? '+1 this week' : 'New account'}
         />
         <StatCard
           label="Completed"
@@ -104,9 +104,9 @@ export default function OverviewTab() {
         />
         <StatCard
           label="Streak"
-          value={data?.totalInterviews > 0 ? 1 : 0}
+          value={(data?.totalInterviews ?? 0) > 0 ? 1 : 0}
           suffix=" days"
-          delta={`Best: ${data?.totalInterviews > 0 ? 1 : 0}`}
+          delta={`Best: ${(data?.totalInterviews ?? 0) > 0 ? 1 : 0}`}
         />
       </section>
 
@@ -228,15 +228,10 @@ function StatCard({
   tone?: 'primary' | 'accent'
 }) {
   return (
-    <div className="surface-card relative overflow-hidden p-5">
-      {tone && (
-        <div
-          className={`absolute -right-8 -top-8 h-24 w-24 rounded-full blur-2xl opacity-25 ${tone === 'primary' ? 'bg-primary' : 'bg-accent'}`}
-        />
-      )}
+    <div className={`surface-card relative overflow-hidden p-5 ${tone === 'accent' ? 'border-t-2 border-t-accent' : ''}`}>
       <div className="text-xs uppercase tracking-wider text-muted-foreground">{label}</div>
       <div className="mt-2 flex items-baseline gap-1">
-        <span className="text-3xl font-semibold tracking-tight">{value}</span>
+        <span className="font-display text-3xl font-medium">{value}</span>
         {suffix && <span className="text-sm text-muted-foreground">{suffix}</span>}
       </div>
       {delta && <div className="mt-2 text-xs text-muted-foreground">{delta}</div>}

@@ -150,12 +150,11 @@ export class InterviewService {
       },
     });
 
-    // Generate questions via AI synchronously so the frontend has them immediately
-    try {
-      await this.generateQuestions(interview.id, input.candidateId, input.jobRole, input.type || 'MIXED');
-    } catch (err) {
-      logger.error({ error: err, interviewId: interview.id }, 'Question generation failed');
-    }
+    // The questions are written in the background. Waiting for them made "Start interview" take
+    // 8-11 s (measured), and they are first needed in the main phase, minutes later, after the
+    // greeting, small talk, agenda and warm-up. The interview page fetches them when they land.
+    this.generateQuestions(interview.id, input.candidateId, input.jobRole, input.type || 'MIXED')
+      .catch((err) => logger.error({ error: err, interviewId: interview.id }, 'Question generation failed'));
 
     logger.info({ interviewId: interview.id }, 'Interview created');
     return interview;

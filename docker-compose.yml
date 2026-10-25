@@ -116,6 +116,8 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       LLM_CHAIN: ${LLM_CHAIN:-}
+      CF_ACCOUNT_ID: ${CF_ACCOUNT_ID:-}
+      CF_API_TOKEN: ${CF_API_TOKEN:-}
       BACKEND_URL: http://backend:5000
     dns:
       - 8.8.8.8

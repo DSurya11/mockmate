@@ -22,7 +22,8 @@ router.post('/', authenticate, async (req: Request, res: Response): Promise<void
 
     const cachedAudio = await redisClient.getBuffer(cacheKey);
     if (cachedAudio) {
-      res.setHeader('Content-Type', 'audio/mpeg');
+      // WAV (Orpheus) starts with "RIFF"; the other engines send MP3.
+      res.setHeader('Content-Type', cachedAudio.subarray(0, 4).toString() === 'RIFF' ? 'audio/wav' : 'audio/mpeg');
       res.send(cachedAudio);
       return;
     }
@@ -41,10 +42,15 @@ router.post('/', authenticate, async (req: Request, res: Response): Promise<void
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // Cache in Redis for 24 hours
-    await redisClient.set(cacheKey, buffer, 'EX', 86400);
+    // Cache only the natural voices, for 24 hours. A line spoken by a fallback engine while the
+    // good ones were over their daily limit should get the good voice next time.
+    const engine = response.headers.get('x-voice-engine') || '';
+    if (engine === 'orpheus' || engine === 'aura') {
+      await redisClient.set(cacheKey, buffer, 'EX', 86400);
+    }
 
-    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Content-Type', response.headers.get('content-type') || 'audio/mpeg');
+    res.setHeader('X-Voice-Engine', engine);
     res.send(buffer);
   } catch (error) {
     logger.error({ error }, 'TTS generation failed');
