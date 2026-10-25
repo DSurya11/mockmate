@@ -58,7 +58,7 @@ def _speak(text="Thanks, that's a clear answer. What do you check first?", who="
 def test_the_most_human_engine_answers_first_with_the_interviewers_own_voice(engines):
     script, calls = engines
     audio, media_type, engine = _speak()
-    assert (engine, media_type) == ("orpheus", "audio/wav") and audio.startswith(b"RIFF")
+    assert (engine, media_type) == ("orpheus", "audio/mpeg") and not audio.startswith(b"RIFF")
     assert '"voice":"autumn"' in calls[0][2].replace(" ", "")          # Sarah's Orpheus voice
 
 
@@ -98,11 +98,21 @@ def test_without_cloudflare_credentials_aura_and_melo_are_skipped(engines, monke
 def test_long_text_is_cut_only_at_sentence_ends_and_wav_pieces_are_joined(engines):
     script, calls = engines
     long = "This is the first sentence of a long reply, which goes on. " * 6
-    audio, _, engine = _speak(long)
-    assert engine == "orpheus" and len(calls) > 1
+    _, media_type, engine = _speak(long)
+    assert (engine, media_type) == ("orpheus", "audio/mpeg") and len(calls) > 1
     assert all(len(c[2]) < 400 for c in calls)
-    with wave.open(io.BytesIO(audio)) as w:
-        assert w.getnframes() == 100 * len(calls)                      # every piece is in it
+    joined = voice._join_wav([_wav(100), _wav(100), _wav(100)])       # pieces joined before encoding
+    with wave.open(io.BytesIO(joined)) as w:
+        assert w.getnframes() == 300
+
+
+def test_orpheus_wav_becomes_a_much_smaller_mp3_and_a_failed_encoding_keeps_the_wav(engines, monkeypatch):
+    wav = _wav(24000)                                                 # one second of audio
+    mp3 = voice._to_mp3(wav)
+    assert len(mp3) * 4 < len(wav)
+    monkeypatch.setattr(voice, "_to_mp3", lambda audio: (_ for _ in ()).throw(RuntimeError("encoder")))
+    audio, media_type, _ = _speak()
+    assert media_type == "audio/wav" and audio.startswith(b"RIFF")
 
 
 def test_split_keeps_sentences_whole_and_cuts_long_ones_at_a_comma():

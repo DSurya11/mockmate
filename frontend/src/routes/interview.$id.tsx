@@ -45,7 +45,7 @@ function withFirstQuestion(reply: string, question: string): string {
   return [...remarks.slice(0, 2), question].join(" ");
 }
 
-type VoiceMeter = { stop: () => void; spokeMs: () => number; takePieceMs: () => number };
+type VoiceMeter = { stop: () => void; spokeMs: () => number; takePieceMs: () => number; quietForMs: () => number };
 
 /**
  * Measures the microphone 10 times a second and counts the time someone is speaking: louder
@@ -63,23 +63,32 @@ function startVoiceMeter(stream: MediaStream): VoiceMeter | null {
     let floor = 0.01;
     let total = 0;
     let piece = 0;
+    let lastVoice = performance.now();
     const timer = setInterval(() => {
       analyser.getFloatTimeDomainData(samples);
       let sum = 0;
       for (const s of samples) sum += s * s;
       const rms = Math.sqrt(sum / samples.length);
       floor = Math.min(floor * 1.02, Math.max(rms, 0.0005));   // drops at once, rises slowly
-      if (rms > Math.max(0.006, floor * 3)) { total += 100; piece += 100; }
+      if (rms > Math.max(0.006, floor * 3)) { total += 100; piece += 100; lastVoice = performance.now(); }
     }, 100);
     return {
       stop: () => { clearInterval(timer); context.close().catch(() => undefined); },
       spokeMs: () => total,
       takePieceMs: () => { const p = piece; piece = 0; return p; },
+      quietForMs: () => performance.now() - lastVoice,
     };
   } catch {
     return null;   // no Web Audio: send everything, the server filter still applies
   }
 }
+
+// Auto-send: after someone has spoken (at least AUTO_SEND_MIN_SPEECH_MS), this much quiet ends the
+// answer and sends it. 5 s, not less: a shorter pause cut people off while they were thinking.
+const AUTO_SEND_SILENCE_MS = 5000;
+const AUTO_SEND_MIN_SPEECH_MS = 1500;
+const AUTO_SEND_COUNTDOWN_FROM_MS = 2000;
+const AUTO_SEND_KEY = "mockmate-auto-send";
 
 // Length of each live-words piece sent to Whisper in browsers without speech recognition.
 const PREVIEW_PIECE_MS = 6000;
@@ -195,6 +204,13 @@ export default function InterviewRoom() {
   const innerRingRef = useRef<HTMLSpanElement | null>(null);
   const outerRingRef = useRef<HTMLSpanElement | null>(null);
   const [noSpeech, setNoSpeech] = useState(false);
+  // Send the answer by itself after 5 s of quiet. On by default; the choice is remembered in this
+  // browser. "Hold on" pauses it for the current answer only.
+  const [autoSend, setAutoSend] = useState(() => {
+    try { return localStorage.getItem(AUTO_SEND_KEY) !== "off"; } catch { return true; }
+  });
+  const [holdAnswer, setHoldAnswer] = useState(false);
+  const [sendingIn, setSendingIn] = useState<number | null>(null);
   // The camera/microphone could not be opened (permission blocked, no device). It used to be
   // logged only, and Start answering then silently did nothing.
   const [micError, setMicError] = useState<string | null>(null);
@@ -554,6 +570,22 @@ export default function InterviewRoom() {
     cleanupInterviewAudioState();
   }, [cleanupInterviewAudioState]);
 
+  useEffect(() => {
+    if (!recording || !autoSend || holdAnswer) { setSendingIn(null); return; }
+    const timer = setInterval(() => {
+      const meter = voiceMeterRef.current;
+      if (!meter || meter.spokeMs() < AUTO_SEND_MIN_SPEECH_MS) { setSendingIn(null); return; }
+      const quiet = meter.quietForMs();
+      if (quiet >= AUTO_SEND_SILENCE_MS) {
+        setSendingIn(null);
+        void stopRecording();          // the recording's end sends the answer, as Stop does
+        return;
+      }
+      setSendingIn(quiet >= AUTO_SEND_COUNTDOWN_FROM_MS ? Math.ceil((AUTO_SEND_SILENCE_MS - quiet) / 1000) : null);
+    }, 200);
+    return () => clearInterval(timer);
+  }, [recording, autoSend, holdAnswer, stopRecording]);
+
   // timer — pure countdown, no side effects inside the state setter
   useEffect(() => {
     if (!recording || !mountedRef.current) return;
@@ -600,6 +632,7 @@ export default function InterviewRoom() {
     setTranscript("");
     setInterimTranscript("");
     setNoSpeech(false);
+    setHoldAnswer(false);
     setSecondsLeft(QUESTION_SECONDS);
     startTimeRef.current = Date.now();
     setRecording(true);
@@ -1224,7 +1257,7 @@ export default function InterviewRoom() {
     { phase: "CLOSING", label: "Wrap-up", completed: false },
   ];
   const words = (transcript + interimTranscript).split(/\s+/).filter(Boolean).length;
-  const status = recording ? "Recording" : transcribing ? "Reading your answer" : speaking ? `${interviewer.name} is speaking` : aiWaiting ? `${interviewer.name} is thinking` : speakingDelay > 0 ? `Your turn in ${speakingDelay}` : "Your turn";
+  const status = recording ? (sendingIn !== null ? `Sending in ${sendingIn}…` : holdAnswer ? "Recording · auto-send paused" : "Recording") : transcribing ? "Reading your answer" : speaking ? `${interviewer.name} is speaking` : aiWaiting ? `${interviewer.name} is thinking` : speakingDelay > 0 ? `Your turn in ${speakingDelay}` : "Your turn";
 
   return (
     <div className={`min-h-screen ${inSession ? "room" : ""}`}>
@@ -1313,7 +1346,7 @@ export default function InterviewRoom() {
               <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded bg-background/70 px-2.5 py-1 text-xs">
                 <span className={`h-2 w-2 rounded-full ${recording ? "bg-destructive recording-pulse" : "bg-muted-foreground"}`} />
                 <span className="font-medium">You</span>
-                {recording && <span className="text-muted-foreground">· answering</span>}
+                {recording && <span className="text-muted-foreground">· {sendingIn !== null ? `sending in ${sendingIn}…` : "answering"}</span>}
                 {keepRecording && <span className="text-muted-foreground">· video kept on this computer</span>}
               </div>
               <div className="absolute right-3 top-3 rounded bg-background/70 px-2 py-1 font-mono text-[11px] text-muted-foreground">
@@ -1398,27 +1431,48 @@ export default function InterviewRoom() {
 
           {/* Controls */}
           <div className="sticky bottom-4 mx-auto mt-6 flex w-fit flex-wrap items-center justify-center gap-2 rounded-md border border-border bg-surface/95 p-2 shadow-sheet">
-            <span className="px-2 text-xs text-muted-foreground">{status}</span>
-            <Button variant="ghost" onClick={() => playQuestionAudio(currentAIMessage, true)} disabled={speaking || submitting}>
-              Replay
-            </Button>
-            {!recording ? (
-              <Button onClick={startRecording} disabled={!!micError || speaking || aiWaiting || transcribing || speakingDelay > 0 || submitting}>
-                Start answering
-              </Button>
+            <span className={`px-2 text-xs tabular-nums ${sendingIn !== null ? "text-accent" : "text-muted-foreground"}`}>{status}</span>
+            {recording ? (
+              <>
+                {/* While answering: it sends itself after 5 s of quiet; these are the manual ways. */}
+                {autoSend && (
+                  <Button variant="ghost" onClick={() => setHoldAnswer((held) => !held)}>
+                    {holdAnswer ? "Resume auto-send" : "Hold on"}
+                  </Button>
+                )}
+                <Button onClick={() => handleNext()}>I'm done</Button>
+              </>
             ) : (
-              <Button variant="destructive" onClick={stopRecording}>Stop</Button>
+              <>
+                <Button variant="ghost" onClick={() => playQuestionAudio(currentAIMessage, true)} disabled={speaking || submitting}>
+                  Replay
+                </Button>
+                <Button onClick={startRecording} disabled={!!micError || speaking || aiWaiting || transcribing || speakingDelay > 0 || submitting}>
+                  Start answering
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => handleNext()}
+                  loading={submitting || transcribing}
+                  // Next sends what was caught. Nothing yet (and not the end): disabled.
+                  disabled={aiWaiting || transcribing || (!transcript.trim() && !interimTranscript.trim() && interviewPhase !== "CLOSING")}
+                  title={!transcript.trim() ? "Answer first: press Start answering" : undefined}
+                >
+                  {interviewPhase === "CLOSING" ? "Finish" : "Next"}
+                </Button>
+              </>
             )}
-            <Button
-              variant="secondary"
-              onClick={() => handleNext()}
-              loading={submitting || transcribing}
-              // Next sends your answer. Nothing to send yet (and not the end): say so, do nothing.
-              disabled={aiWaiting || transcribing || (!recording && !transcript.trim() && !interimTranscript.trim() && interviewPhase !== "CLOSING")}
-              title={!recording && !transcript.trim() ? "Answer first: press Start answering" : undefined}
-            >
-              {questionIndex === iv.questions.length - 1 ? "Finish" : "Next"}
-            </Button>
+            <label className="flex cursor-pointer items-center gap-1.5 px-2 text-xs text-muted-foreground" title="Send my answer after 5 seconds of quiet">
+              <input
+                type="checkbox"
+                checked={autoSend}
+                onChange={(e) => {
+                  setAutoSend(e.target.checked);
+                  try { localStorage.setItem(AUTO_SEND_KEY, e.target.checked ? "on" : "off"); } catch { /* this visit only */ }
+                }}
+              />
+              Auto-send
+            </label>
           </div>
         </main>
       )}
