@@ -1,17 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <defs>
-    <linearGradient id="grad" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#6c63ff"/>
-      <stop offset="100%" stop-color="#3b82f6"/>
-    </linearGradient>
-  </defs>
-  <!-- Background rounded square (same as the Logo wrapper div) -->
-  <rect width="32" height="32" rx="8" fill="url(#grad)"/>
-  <!-- Exact same SVG content from Logo.tsx, centered inside the 32x32 box -->
-  <!-- Original viewBox is 0 0 24 24, we translate+scale to center it -->
-  <g transform="translate(4, 4) scale(1)">
-    <path d="M4 14c0-4.4 3.6-8 8-8s8 3.6 8 8" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
-    <circle cx="12" cy="14" r="2.2" fill="white"/>
-    <path d="M9 19h6" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
-  </g>
+  <!-- The MockMate mark: a speech mark in an ink square. On a dark tab bar it turns to paper. -->
+  <style>
+    .tile { fill: #1d1b18; }
+    .mark { stroke: #f6f2ea; }
+    @media (prefers-color-scheme: dark) {
+      .tile { fill: #f2eee6; }
+      .mark { stroke: #1d1b18; }
+    }
+  </style>
+  <rect class="tile" width="32" height="32" rx="7"/>
+  <path class="mark" d="M8.2 9.2h15.6v9.5h-7.8l-5 3.9v-3.9H8.2z" stroke-width="2.4" stroke-linejoin="round"/>
 </svg>
