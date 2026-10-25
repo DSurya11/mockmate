@@ -35,7 +35,9 @@ export default defineConfig({
   preview: {
     port: 3000,
     host: true,
-    allowedHosts: ['all'],
+    // Vite reads 'all' as a host literally named "all", so Render's address was blocked (403).
+    // A leading dot allows every subdomain; localhost is always allowed.
+    allowedHosts: ['.onrender.com'],
     proxy: {
       '/api': {
         target: BACKEND,
