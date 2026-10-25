@@ -1,4 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom'
+import { motion, useReducedMotion } from 'motion/react'
 import { useState } from 'react'
 import { api } from '@/lib/mock-api'
 import { Button } from '@/components/ui-kit/Button'
@@ -25,25 +26,18 @@ export default function PracticeTab() {
   const [customRole, setCustomRole] = useState('')
   const [type, setType] = useState<string>(TYPES[0].id)
   const [submitting, setSubmitting] = useState(false)
-  const [saveVideo, setSaveVideo] = useState(false)
+  // A video of the whole interview, recorded in this browser and offered as a download at the
+  // end. It replaced a folder picker that only Chrome has: in Firefox the picker threw, and the
+  // Start button silently did nothing. It also saved audio only, one file overwriting the next.
+  const [keepRecording, setKeepRecording] = useState(false)
+  const still = useReducedMotion()
 
   async function start() {
-    let dirHandle = null
-    if (saveVideo) {
-      try {
-        dirHandle = await (window as any).showDirectoryPicker({ mode: 'readwrite' })
-      } catch (e) {
-        return // user cancelled
-      }
-    }
     setSubmitting(true)
     try {
       const finalRole = customRole.trim() || role
       const { id } = await api.createInterview({ jobRole: finalRole, interviewType: type })
-      if (dirHandle) {
-        (window as any).__videoDirHandle = dirHandle
-      }
-      navigate(`/interview/${id}`)
+      navigate(`/interview/${id}`, { state: { keepRecording } })
     } finally {
       setSubmitting(false)
     }
@@ -86,14 +80,19 @@ export default function PracticeTab() {
 
           <section>
             <h3 className="text-sm font-medium tracking-tight">2 · Pick a format</h3>
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="mt-4 grid gap-3 sm:grid-cols-3" style={{ perspective: 800 }}>
               {TYPES.map((t) => {
                 const active = type === t.id
                 return (
-                  <button
+                  // A slight lift toward you on hover and a press on click: depth as feedback.
+                  <motion.button
                     key={t.id}
                     onClick={() => setType(t.id)}
-                    className={`group relative overflow-hidden rounded-xl border p-4 text-left transition-all ${
+                    whileHover={still ? undefined : { rotateX: 7, y: -3 }}
+                    whileTap={still ? undefined : { rotateX: 0, y: 0, scale: 0.98 }}
+                    transition={{ type: 'spring', stiffness: 400, damping: 26 }}
+                    style={{ transformOrigin: 'bottom center' }}
+                    className={`group relative overflow-hidden rounded-md border p-4 text-left transition-colors ${
                       active
                         ? 'border-primary/60 bg-primary/10 ring-1 ring-primary/40'
                         : 'border-border bg-elevated/40 hover:border-border-strong'
@@ -102,7 +101,7 @@ export default function PracticeTab() {
                     {active && <span className="absolute right-3 top-3 grid h-5 w-5 place-items-center rounded-full bg-gradient-primary text-[10px] text-primary-foreground">✓</span>}
                     <div className="text-sm font-medium">{t.id}</div>
                     <div className="mt-1 text-xs text-muted-foreground">{t.desc}</div>
-                  </button>
+                  </motion.button>
                 )
               })}
             </div>
@@ -114,8 +113,8 @@ export default function PracticeTab() {
             <div className="space-y-2">
               <div className="text-xs text-muted-foreground">8 questions · about 20 min · webcam + microphone</div>
               <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
-                <input type="checkbox" checked={saveVideo} onChange={e => setSaveVideo(e.target.checked)} className="rounded border-border/50 bg-elevated/40" />
-                <span>Save video locally (asks for path)</span>
+                <input type="checkbox" checked={keepRecording} onChange={e => setKeepRecording(e.target.checked)} className="rounded border-border/50 bg-elevated/40" />
+                <span>Keep a video of this interview (stays on your computer, never uploaded)</span>
               </label>
             </div>
             <div className="flex items-center gap-2">

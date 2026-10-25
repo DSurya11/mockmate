@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { SlidingNumber } from '@/components/animate-ui/primitives/texts/sliding-number'
 import { useCallback, useEffect, useState } from 'react'
 import { api, type Interview } from '@/lib/mock-api'
 import { Button } from '@/components/ui-kit/Button'
@@ -231,7 +232,9 @@ function StatCard({
     <div className={`surface-card relative overflow-hidden p-5 ${tone === 'accent' ? 'border-t-2 border-t-accent' : ''}`}>
       <div className="text-xs uppercase tracking-wider text-muted-foreground">{label}</div>
       <div className="mt-2 flex items-baseline gap-1">
-        <span className="font-display text-3xl font-medium">{value}</span>
+        <span className="font-display text-3xl font-medium">
+          {typeof value === 'number' ? <SlidingNumber number={value} fromNumber={0} inView /> : value}
+        </span>
         {suffix && <span className="text-sm text-muted-foreground">{suffix}</span>}
       </div>
       {delta && <div className="mt-2 text-xs text-muted-foreground">{delta}</div>}

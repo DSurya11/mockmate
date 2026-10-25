@@ -1,4 +1,6 @@
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { motion, useReducedMotion } from "motion/react";
+import { SlidingNumber } from "@/components/animate-ui/primitives/texts/sliding-number";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { api, type Evaluation, type Interview } from "@/lib/mock-api";
 import { Button } from "@/components/ui-kit/Button";
@@ -275,6 +277,41 @@ export default function InterviewRoom() {
     }).catch(() => {});
   }, []);
 
+  // A video of the whole interview, when it was asked for on the practice page. It is made in
+  // this browser and offered as a download on the results page; it is never uploaded.
+  const location = useLocation();
+  const keepRecording = Boolean((location.state as { keepRecording?: boolean } | null)?.keepRecording);
+  const sessionRecorderRef = useRef<MediaRecorder | null>(null);
+  const sessionChunksRef = useRef<Blob[]>([]);
+  const [recording_, setRecordingFile] = useState<{ url: string; name: string } | null>(null);
+
+  const startSessionRecording = useCallback((stream: MediaStream) => {
+    if (sessionRecorderRef.current || typeof MediaRecorder === "undefined") return;
+    const mimeType = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"]
+      .find((type) => MediaRecorder.isTypeSupported(type));
+    if (!mimeType) return;
+    // ~0.6 Mbit/s keeps a 20-minute interview near 100 MB in memory.
+    const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 600_000, audioBitsPerSecond: 64_000 });
+    sessionChunksRef.current = [];
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) sessionChunksRef.current.push(e.data); };
+    recorder.start(5000);
+    sessionRecorderRef.current = recorder;
+  }, []);
+
+  const finishSessionRecording = useCallback(() => new Promise<void>((resolve) => {
+    const recorder = sessionRecorderRef.current;
+    if (!recorder || recorder.state === "inactive") return resolve();
+    recorder.onstop = () => {
+      const type = recorder.mimeType || "video/webm";
+      const blob = new Blob(sessionChunksRef.current, { type });
+      const day = new Date().toISOString().slice(0, 10);
+      const role = (iv?.jobRole || "interview").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      setRecordingFile({ url: URL.createObjectURL(blob), name: `mockmate-${role}-${day}.${type.includes("mp4") ? "mp4" : "webm"}` });
+      resolve();
+    };
+    recorder.stop();
+  }), [iv?.jobRole]);
+
   // camera setup (only when in_progress)
   const initCamera = useCallback(async () => {
     try {
@@ -284,10 +321,11 @@ export default function InterviewRoom() {
         videoRef.current.srcObject = stream;
         await videoRef.current.play().catch(() => {});
       }
+      if (keepRecording) startSessionRecording(stream);
     } catch (e) {
       console.warn("Camera/mic denied", e);
     }
-  }, []);
+  }, [keepRecording, startSessionRecording]);
 
   useEffect(() => {
     if (iv?.status === "in_progress") initCamera();
@@ -487,24 +525,8 @@ export default function InterviewRoom() {
     mr.ondataavailable = (e) => {
       if (e.data.size > 0) chunks.push(e.data);
     };
-    const currentQ = questionIndex + 1;
     mr.onstop = async () => {
       const blob = new Blob(chunks, { type: mimeType });
-
-      // Optionally save local copy if file system access was granted
-      const dirHandle = getVideoDirHandle();
-      if (dirHandle) {
-        try {
-          const fileHandle = await dirHandle.getFileHandle(`question-${currentQ}.webm`, {
-            create: true,
-          });
-          const writable = await fileHandle.createWritable();
-          await writable.write(blob);
-          await writable.close();
-        } catch (e) {
-          console.warn(`Failed to save local video for Q${currentQ}`, e);
-        }
-      }
 
       // Always send for transcription
       handleRecordingComplete(blob);
@@ -654,6 +676,7 @@ export default function InterviewRoom() {
     if (!iv || interviewCancelledRef.current || finalizingInterviewRef.current) return;
     finalizingInterviewRef.current = true;
     if (mountedRef.current) setIsScoring(true);
+    await finishSessionRecording();
     try {
       const updated = await api.completeInterview(iv.id, {
         conversationHistory,
@@ -669,7 +692,7 @@ export default function InterviewRoom() {
         finalizingInterviewRef.current = false;
       }
     }
-  }, [iv, conversationHistory]);
+  }, [iv, conversationHistory, finishSessionRecording]);
 
   // Start conversational interview
   // While the interviewer's reply is on its way; and what to retry if it never came.
@@ -960,7 +983,7 @@ export default function InterviewRoom() {
     </div>
   );
 
-  if (iv.status === "completed") return <ResultsView iv={iv} interviewer={interviewer} interviewPhase={interviewPhase} exchangeCount={exchangeCount} conversationHistory={conversationHistory} />;
+  if (iv.status === "completed") return <ResultsView iv={iv} interviewer={interviewer} interviewPhase={interviewPhase} exchangeCount={exchangeCount} conversationHistory={conversationHistory} recordingFile={recording_} />;
 
   const inSession = iv.status === "in_progress";
   const currentAIMessage = conversationHistory[conversationHistory.length - 1]?.content || "";
@@ -1037,7 +1060,8 @@ export default function InterviewRoom() {
               <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded bg-background/70 px-2.5 py-1 text-xs">
                 <span className={`h-2 w-2 rounded-full ${recording ? "bg-destructive recording-pulse" : "bg-muted-foreground"}`} />
                 <span className="font-medium">You</span>
-                {recording && <span className="text-muted-foreground">· recording</span>}
+                {recording && <span className="text-muted-foreground">· answering</span>}
+                {keepRecording && <span className="text-muted-foreground">· video kept on this computer</span>}
               </div>
               <div className="absolute right-3 top-3 rounded bg-background/70 px-2 py-1 font-mono text-[11px] text-muted-foreground">
                 {interviewPhase === "CORE_QUESTIONS" ? `Question ${questionIndex + 1} of ${iv.questions.length || "…"}` : steps.find((s) => s.phase === interviewPhase)?.label}
@@ -1189,7 +1213,8 @@ function ReadyView({
   );
 }
 
-function ResultsView({ iv: completed, interviewer, interviewPhase, exchangeCount, conversationHistory }: { 
+function ResultsView({ iv: completed, interviewer, interviewPhase, exchangeCount, conversationHistory, recordingFile }: { 
+  recordingFile?: { url: string; name: string } | null;
   iv: Interview; 
   interviewer: typeof INTERVIEWERS[0]; 
   interviewPhase: InterviewPhase; 
@@ -1250,7 +1275,7 @@ function ResultsView({ iv: completed, interviewer, interviewPhase, exchangeCount
                 Final score
               </div>
               <div className="text-2xl font-semibold tracking-tight">
-                {iv.score ?? "—"}
+                {typeof iv.score === "number" ? <SlidingNumber number={Math.round(iv.score)} fromNumber={0} inView /> : "—"}
                 <span className="text-sm text-muted-foreground"> / 100</span>
               </div>
             </div>
@@ -1278,6 +1303,20 @@ function ResultsView({ iv: completed, interviewer, interviewPhase, exchangeCount
             </div>
           </div>
           
+          {recordingFile && (
+            <div className="surface-card p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Your recording</div>
+                  <p className="mt-1 text-sm text-muted-foreground">Only on this computer. Download it before you leave this page.</p>
+                </div>
+                <a href={recordingFile.url} download={recordingFile.name}>
+                  <Button size="sm">Download video</Button>
+                </a>
+              </div>
+              <video src={recordingFile.url} controls className="mt-4 w-full rounded-md bg-black" />
+            </div>
+          )}
           {iv.evaluation && <EvaluationCard evaluation={iv.evaluation} />}
           {scoringLater && (
             <div className="surface-card p-5 text-sm text-muted-foreground">
@@ -1345,13 +1384,10 @@ function FullPageError({ message }: { message: string }) {
   );
 }
 
-function getVideoDirHandle(): FileSystemDirectoryHandle | null {
-  const win = window as Window & { __videoDirHandle?: FileSystemDirectoryHandle };
-  return win.__videoDirHandle ?? null;
-}
 
 /** The rubric, each score with the candidate's own words as evidence, then what to practise. */
 function EvaluationCard({ evaluation }: { evaluation: Evaluation }) {
+  const still = useReducedMotion();
   const label = (name: string) => name.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
   if (evaluation.status !== "scored") {
     return (
@@ -1365,18 +1401,29 @@ function EvaluationCard({ evaluation }: { evaluation: Evaluation }) {
   return (
     <div className="surface-card p-5">
       <div className="text-[11px] uppercase tracking-wider text-muted-foreground">How you did, with evidence</div>
-      <div className="mt-3 space-y-4">
-        {evaluation.dimensions.map((d) => (
-          <div key={d.name}>
+      {/* Each skill's card is dealt onto the table in 3D as it comes into view: the evidence
+          arrives one card at a time, the way a reviewer lays out notes. Once, not on every scroll. */}
+      <div className="mt-3 space-y-4" style={{ perspective: 900 }}>
+        {evaluation.dimensions.map((d, i) => (
+          <motion.div
+            key={d.name}
+            initial={still ? false : { opacity: 0, rotateX: -55, y: 18 }}
+            whileInView={{ opacity: 1, rotateX: 0, y: 0 }}
+            viewport={{ once: true, margin: "-40px" }}
+            transition={{ delay: i * 0.09, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+            style={{ transformOrigin: "top center" }}
+          >
             <div className="flex items-baseline justify-between text-sm">
               <span className="font-medium">{label(d.name)}</span>
-              <span className="text-muted-foreground">{d.score === null ? "not assessed" : `${d.score} / 5`}</span>
+              <span className="text-muted-foreground">
+                {d.score === null ? "not assessed" : <><SlidingNumber number={d.score} fromNumber={0} inView /> / 5</>}
+              </span>
             </div>
             {d.reason && <p className="mt-1 text-sm text-foreground/80">{d.reason}</p>}
-            {d.quotes.map((q, i) => (
-              <blockquote key={i} className="mt-1 border-l-2 border-border pl-3 text-sm italic text-muted-foreground">"{q}"</blockquote>
+            {d.quotes.map((q, qi) => (
+              <blockquote key={qi} className="mt-1 border-l-2 border-accent/60 pl-3 text-sm italic text-muted-foreground">"{q}"</blockquote>
             ))}
-          </div>
+          </motion.div>
         ))}
       </div>
       {[["Strengths", evaluation.strengths], ["Gaps", evaluation.gaps], ["Practise next", evaluation.practice]].map(([title, items]) =>

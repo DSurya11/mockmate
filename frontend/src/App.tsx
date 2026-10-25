@@ -1,18 +1,19 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { Suspense } from 'react'
+import { Suspense, lazy } from 'react'
 
-// Pages — import directly from routes/ (no lazy needed for correctness)
+// The first pages a visitor sees load with the app; the rest load when first opened, so the
+// landing page does not wait for the charts library or the interview room.
 import Landing from './routes/index'
 import LoginPage, { AuthShell } from './routes/login'
 import RegisterPage from './routes/register'
-import DashboardLayout from './routes/dashboard'
-import OverviewTab from './routes/dashboard.index'
-import InterviewsTab from './routes/dashboard.interviews'
-import ResumesTab from './routes/dashboard.resumes'
-import PracticeTab from './routes/dashboard.practice'
-import AnalyticsTab from './routes/dashboard.analytics'
-import InterviewRoom from './routes/interview.$id'
+const DashboardLayout = lazy(() => import('./routes/dashboard'))
+const OverviewTab = lazy(() => import('./routes/dashboard.index'))
+const InterviewsTab = lazy(() => import('./routes/dashboard.interviews'))
+const ResumesTab = lazy(() => import('./routes/dashboard.resumes'))
+const PracticeTab = lazy(() => import('./routes/dashboard.practice'))
+const AnalyticsTab = lazy(() => import('./routes/dashboard.analytics'))
+const InterviewRoom = lazy(() => import('./routes/interview.$id'))
 
 const queryClient = new QueryClient()
 

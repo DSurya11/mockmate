@@ -1,5 +1,6 @@
+import { useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { motion, useReducedMotion } from 'framer-motion'
+import { motion, useReducedMotion, useScroll, useTransform } from 'motion/react'
 import { Button } from '@/components/ui-kit/Button'
 import { Logo } from '@/components/ui-kit/Logo'
 import { ThemeToggle } from '@/components/ui-kit/ThemeToggle'
@@ -46,13 +47,24 @@ function EvidenceSheet() {
 
 export default function Landing() {
   const still = useReducedMotion()
-  const settle = (delay: number, rotate: number) =>
+
+  // The notes from a finished interview, as a real 3D stack: tilted away in perspective at the
+  // top of the page, then laid flat and spread apart in depth as you scroll down to read.
+  // Driven by scroll, never by the cursor; with reduced motion it simply sits flat.
+  const stackRef = useRef<HTMLDivElement>(null)
+  const { scrollYProgress } = useScroll({ target: stackRef, offset: ['start end', 'end start'] })
+  const tilt = useTransform(scrollYProgress, [0.25, 0.6], [16, 2])
+  const turn = useTransform(scrollYProgress, [0.25, 0.6], [-14, -4])
+  const spread = useTransform(scrollYProgress, [0.25, 0.6], [1, 2.2])
+  const backZ = useTransform(spread, (s) => -36 * s)
+  const midZ = useTransform(spread, (s) => -18 * s)
+  const enter = (delay: number) =>
     still
       ? {}
       : {
-          initial: { opacity: 0, y: 18, rotate: rotate * 2 },
-          animate: { opacity: 1, y: 0, rotate },
-          transition: { delay, duration: 0.7, ease: [0.22, 1, 0.36, 1] as const },
+          initial: { opacity: 0, y: 28 },
+          animate: { opacity: 1, y: 0 },
+          transition: { delay, duration: 0.8, ease: [0.22, 1, 0.36, 1] as const },
         }
 
   return (
@@ -85,11 +97,18 @@ export default function Landing() {
           </div>
 
           {/* A small stack of notes from a finished interview: depth from paper, not glow. */}
-          <div className="relative mx-auto w-full max-w-md md:mx-0">
-            <motion.div {...settle(0.05, -4)} className="absolute inset-0 translate-x-3 translate-y-4 rounded-md border border-border bg-surface-2 shadow-paper" />
-            <motion.div {...settle(0.15, 2.5)} className="absolute inset-0 -translate-x-2 translate-y-2 rounded-md border border-border bg-surface shadow-paper" />
-            <motion.div {...settle(0.25, 0)} className="relative">
-              <EvidenceSheet />
+          <div ref={stackRef} className="relative mx-auto w-full max-w-md md:mx-0" style={{ perspective: 1100 }}>
+            <motion.div
+              className="relative"
+              style={still ? undefined : { rotateX: tilt, rotateY: turn, transformStyle: 'preserve-3d' }}
+            >
+              <motion.div {...enter(0.05)} style={still ? undefined : { z: backZ, rotate: -3 }}
+                className="absolute inset-0 translate-x-3 translate-y-4 rounded-md border border-border bg-surface-2 shadow-paper" />
+              <motion.div {...enter(0.15)} style={still ? undefined : { z: midZ, rotate: 2 }}
+                className="absolute inset-0 -translate-x-2 translate-y-2 rounded-md border border-border bg-surface shadow-paper" />
+              <motion.div {...enter(0.25)} className="relative">
+                <EvidenceSheet />
+              </motion.div>
             </motion.div>
           </div>
         </section>
