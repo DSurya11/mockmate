@@ -4,6 +4,7 @@ import { useAuth } from '@/stores/auth'
 import { Button } from '@/components/ui-kit/Button'
 import { Field } from '@/components/ui-kit/Field'
 import { Logo } from '@/components/ui-kit/Logo'
+import { ThemeToggle } from '@/components/ui-kit/ThemeToggle'
 
 export default function LoginPage() {
   const { login, status, user } = useAuth()
@@ -60,7 +61,10 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
     <div className="min-h-screen">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
         <Link to="/"><Logo /></Link>
-        <Link to="/" className="text-sm text-muted-foreground hover:text-foreground">Back to home</Link>
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <Link to="/" className="text-sm text-muted-foreground hover:text-foreground">Back to home</Link>
+        </div>
       </header>
 
       <main className="mx-auto grid max-w-6xl grid-cols-1 items-start gap-12 px-6 pb-16 pt-6 md:grid-cols-[1fr_26rem] md:gap-20 md:pt-14">

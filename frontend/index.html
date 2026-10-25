@@ -6,6 +6,15 @@
     <title>MockMate — AI Interview Practice</title>
     <meta name="description" content="Practice realistic technical, behavioral, and system design interviews with AI-driven feedback, ATS resume scoring, and detailed analytics." />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script>
+      // Apply the saved theme (or the system's) before the first paint: no flash of the wrong one.
+      try {
+        var t = localStorage.getItem('mockmate-theme');
+        if (t === 'dark' || (!t && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark');
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

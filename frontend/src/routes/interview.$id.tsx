@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { api, type Evaluation, type Interview } from "@/lib/mock-api";
 import { Button } from "@/components/ui-kit/Button";
 import { Logo } from "@/components/ui-kit/Logo";
+import { ThemeToggle } from "@/components/ui-kit/ThemeToggle";
 import { ScoreRing } from "@/components/charts/Charts";
 import { useAuth } from "@/stores/auth";
 
@@ -957,6 +958,7 @@ export default function InterviewRoom() {
                 {formatTime(secondsLeft)}
               </span>
             )}
+            {!inSession && <ThemeToggle />}
             <Link to="/dashboard"><Button variant="ghost" size="sm">Leave</Button></Link>
           </div>
         </div>

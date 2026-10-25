@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { motion, useReducedMotion } from 'framer-motion'
 import { Button } from '@/components/ui-kit/Button'
 import { Logo } from '@/components/ui-kit/Logo'
+import { ThemeToggle } from '@/components/ui-kit/ThemeToggle'
 
 const STEPS = [
   {
@@ -61,6 +62,7 @@ export default function Landing() {
         <nav className="flex items-center gap-1 text-sm">
           <a href="#how" className="hidden px-3 py-2 text-muted-foreground hover:text-foreground sm:block">How it works</a>
           <Link to="/login" className="px-3 py-2 text-muted-foreground hover:text-foreground">Sign in</Link>
+          <ThemeToggle />
           <Link to="/register"><Button size="sm">Start practising</Button></Link>
         </nav>
       </header>

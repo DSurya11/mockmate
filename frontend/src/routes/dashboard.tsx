@@ -2,6 +2,7 @@ import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useAuth } from '@/stores/auth'
 import { Logo } from '@/components/ui-kit/Logo'
+import { ThemeToggle } from '@/components/ui-kit/ThemeToggle'
 import { Button } from '@/components/ui-kit/Button'
 import { cn } from '@/lib/utils'
 
@@ -58,6 +59,7 @@ export default function DashboardLayout() {
             </nav>
           </div>
           <div className="flex items-center gap-3">
+            <ThemeToggle />
             <Link to="/interview/new"><Button size="sm">New interview</Button></Link>
             <UserMenu name={user.name} email={user.email} onLogout={() => { logout(); navigate('/') }} />
           </div>
