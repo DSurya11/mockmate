@@ -69,7 +69,7 @@ export default function PracticeTab() {
                   onClick={() => { setRole(r); setCustomRole('') }}
                   className={`rounded-full border px-3 py-1.5 text-xs transition-all ${
                     role === r && !customRole
-                      ? 'border-primary/60 bg-primary/15 text-foreground shadow-[0_0_0_3px_oklch(0.72_0.18_255_/_0.12)]'
+                      ? 'border-primary/60 bg-primary/15 text-foreground ring-1 ring-primary/40'
                       : 'border-border bg-elevated/40 text-muted-foreground hover:text-foreground'
                   }`}
                 >
@@ -95,7 +95,7 @@ export default function PracticeTab() {
                     onClick={() => setType(t.id)}
                     className={`group relative overflow-hidden rounded-xl border p-4 text-left transition-all ${
                       active
-                        ? 'border-primary/60 bg-primary/10 shadow-[0_0_0_3px_oklch(0.72_0.18_255_/_0.12)]'
+                        ? 'border-primary/60 bg-primary/10 ring-1 ring-primary/40'
                         : 'border-border bg-elevated/40 hover:border-border-strong'
                     }`}
                   >
@@ -112,7 +112,7 @@ export default function PracticeTab() {
 
           <section className="flex items-center justify-between">
             <div className="space-y-2">
-              <div className="text-xs text-muted-foreground">5 questions · ~ 20 min · webcam + microphone</div>
+              <div className="text-xs text-muted-foreground">8 questions · about 20 min · webcam + microphone</div>
               <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
                 <input type="checkbox" checked={saveVideo} onChange={e => setSaveVideo(e.target.checked)} className="rounded border-border/50 bg-elevated/40" />
                 <span>Save video locally (asks for path)</span>

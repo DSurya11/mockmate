@@ -117,6 +117,15 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime() });
 });
 
+// Called by the frontend as soon as any page opens. On Render's free tier the services sleep
+// after 15 idle minutes and take 30-60 s to wake, so this request wakes the backend, and the
+// backend wakes the AI service, while the visitor is still logging in.
+app.get('/api/health/wake', (req, res) => {
+  const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://mockmate-ai:8000';
+  fetch(`${aiServiceUrl}/health`).catch(() => undefined);
+  res.json({ status: 'waking' });
+});
+
 // API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/resumes', resumeRoutes);

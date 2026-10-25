@@ -19,6 +19,20 @@ type InterviewPhase =
 const QUESTION_SECONDS = 120;
 const SPEAKING_DELAY_SECONDS = 3; // Delay after AI finishes speaking before user can start answering
 
+// Pieces for the voice: sentences, never cut mid-sentence. The first sentence goes alone so the
+// interviewer starts speaking quickly; the rest are grouped up to ~190 characters (the most
+// natural engine takes 200 a request and allows about 100 requests a day).
+function speechPieces(text: string, limit = 190): string[] {
+  const sentences = text.match(/[^.!?]+[.!?]+["')\]]*\s*|[^.!?]+$/g)?.map((s) => s.trim()).filter(Boolean) ?? [text];
+  const pieces: string[] = [];
+  sentences.forEach((sentence, i) => {
+    const last = pieces.length - 1;
+    if (i > 1 && pieces[last].length + 1 + sentence.length <= limit) pieces[last] += " " + sentence;
+    else pieces.push(sentence);
+  });
+  return pieces;
+}
+
 const INTERVIEWERS = [
   { 
     id: "priya", 
@@ -203,6 +217,7 @@ export default function InterviewRoom() {
   }, [auth.status, navigate]);
 
   useEffect(() => {
+    if (!id) return;
     let cancelled = false;
     api
       .getInterview(id)
@@ -230,7 +245,7 @@ export default function InterviewRoom() {
   // they are first needed after the greeting and warm-up, so they are fetched quietly meanwhile.
   const waitingForQuestions = !!iv && iv.status !== "completed" && iv.questions.length === 0;
   useEffect(() => {
-    if (!waitingForQuestions) return;
+    if (!waitingForQuestions || !id) return;
     let tries = 0;
     const timer = setInterval(async () => {
       tries += 1;
@@ -565,14 +580,13 @@ export default function InterviewRoom() {
       }
     };
 
-    const speakWithBrowser = async () => {
+    const speakWithBrowser = async (words: string) => {
       await new Promise<void>((resolve) => {
         ttsPlaybackResolveRef.current = resolve;
         try {
-          const utterance = new SpeechSynthesisUtterance(text);
+          const utterance = new SpeechSynthesisUtterance(words);
           utterance.onend = () => {
             if (!mountedRef.current) return resolve();
-            console.log("Speech synthesis ended");
             finishPlayback();
             if (ttsPlaybackResolveRef.current === resolve) ttsPlaybackResolveRef.current = null;
             resolve();
@@ -592,51 +606,47 @@ export default function InterviewRoom() {
         }
       });
     };
-    
-    try {
-      const url = await api.getTtsAudioUrl(text, interviewer.voice);
-      
-      if (!mountedRef.current || interviewCancelledRef.current) {
-        console.log("Component unmounted or cancelled during TTS fetch");
+
+    // One audio clip, start to end. false when it could not be played.
+    const playClip = (url: string) => new Promise<boolean>((resolve) => {
+      ttsPlaybackResolveRef.current = () => resolve(true);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      const done = (ok: boolean) => {
+        audioRef.current = null;
+        URL.revokeObjectURL(url);
+        if (ttsPlaybackResolveRef.current) ttsPlaybackResolveRef.current = null;
+        resolve(ok);
+      };
+      audio.onended = () => done(true);
+      audio.onerror = () => done(false);
+      audio.play()?.catch((e: { name?: string }) => {
+        if (e?.name !== "AbortError") done(false);
+      });
+    });
+
+    // The reply is spoken in pieces cut only at sentence ends: the first sentence alone, so the
+    // voice starts as soon as possible, then the rest. Every piece is requested at once and
+    // played in order, so the next one is ready when the current one ends.
+    const pieces = speechPieces(text);
+    const clips = pieces.map((piece) => api.getTtsAudioUrl(piece, interviewer.voice));
+    clips.forEach((clip) => clip.catch(() => undefined));
+
+    for (let i = 0; i < pieces.length; i++) {
+      let url: string | null = null;
+      try {
+        url = await clips[i];
+      } catch (e) {
+        console.error("TTS failed, the browser voice reads the rest", e);
+      }
+      if (!mountedRef.current || interviewCancelledRef.current || !ttsPlayingRef.current) return;
+      if (!url || !(await playClip(url))) {
+        await speakWithBrowser(pieces.slice(i).join(" "));
         return;
       }
-      
-      await new Promise<void>((resolve) => {
-        ttsPlaybackResolveRef.current = resolve;
-        const audio = new Audio(url);
-        audioRef.current = audio;
-
-        audio.onended = () => {
-          if (!mountedRef.current) return resolve();
-          console.log("TTS playback ended");
-          audioRef.current = null;
-          finishPlayback();
-          if (ttsPlaybackResolveRef.current === resolve) ttsPlaybackResolveRef.current = null;
-          resolve();
-        };
-
-        audio.onerror = (e) => {
-          console.error("TTS audio error", e);
-          audioRef.current = null;
-          if (ttsPlaybackResolveRef.current === resolve) ttsPlaybackResolveRef.current = null;
-          void speakWithBrowser().finally(resolve);
-        };
-
-        const playPromise = audio.play();
-        if (playPromise !== undefined) {
-          playPromise.catch((e: any) => {
-            if (e.name === "AbortError") return;
-            console.error("Audio play error:", e);
-            audioRef.current = null;
-            void speakWithBrowser().finally(resolve);
-          });
-        }
-      });
-    } catch (e) {
-      console.error("TTS failed, fallback to synthesis", e);
-      if (!mountedRef.current || interviewCancelledRef.current) return;
-      await speakWithBrowser();
+      if (!mountedRef.current || interviewCancelledRef.current || !ttsPlayingRef.current) return;
     }
+    finishPlayback();
   }, [interviewer, recording, cleanupInterviewAudioState]);
 
   const completeInterviewSession = useCallback(async () => {
@@ -918,232 +928,148 @@ export default function InterviewRoom() {
   const currentAIMessage = conversationHistory[conversationHistory.length - 1]?.content || "";
   const progressPct = ((exchangeCount + (recording ? 0.5 : 0)) / 20) * 100; // Estimate 20 exchanges total
 
-  return (
-    <div className="relative min-h-screen overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 grid-bg opacity-30" />
+  const steps = [
+    { phase: "GREETING", label: "Welcome", completed: exchangeCount > 0 },
+    { phase: "SMALL_TALK", label: "Small talk", completed: exchangeCount > 3 },
+    { phase: "AGENDA", label: "Overview", completed: exchangeCount > 4 },
+    { phase: "BACKGROUND", label: "Warm-up", completed: warmupQuestionsAsked >= 2 },
+    { phase: "CORE_QUESTIONS", label: "Main questions", completed: interviewPhase === "CLOSING" },
+    { phase: "CLOSING", label: "Wrap-up", completed: false },
+  ];
+  const words = (transcript + interimTranscript).split(/\s+/).filter(Boolean).length;
+  const status = recording ? "Recording" : speaking ? `${interviewer.name} is speaking` : speakingDelay > 0 ? `Your turn in ${speakingDelay}` : "Your turn";
 
-      <header className="relative z-10 border-b border-border bg-background/70 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-[1500px] items-center justify-between gap-4 px-6 py-3.5">
-          <div className="flex items-center gap-4">
-            <Link to="/dashboard">
-              <Logo />
-            </Link>
+  return (
+    <div className={`min-h-screen ${inSession ? "room" : ""}`}>
+      <header className="border-b border-border">
+        <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-4 px-5 py-3">
+          <div className="flex min-w-0 items-center gap-4">
+            <Link to="/dashboard"><Logo /></Link>
             <span className="hidden h-5 w-px bg-border md:block" />
-            <div className="hidden md:block">
-              <div className="text-xs uppercase tracking-wider text-muted-foreground">
-                {iv.interviewType}
-              </div>
-              <div className="text-sm font-medium leading-tight">{iv.jobRole}</div>
+            <div className="hidden min-w-0 md:block">
+              <div className="truncate text-sm font-medium">{iv.jobRole}</div>
+              <div className="text-xs text-muted-foreground">{iv.interviewType} interview</div>
             </div>
-            {inSession && (
-              <>
-                <span className="hidden h-5 w-px bg-border md:block" />
-                <div className="flex items-center gap-3 rounded-full border border-border bg-elevated/40 px-3 py-1.5 shadow-sm backdrop-blur">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-primary text-xs font-bold text-white">
-                    {interviewer.name.charAt(0)}
-                  </div>
-                  <div className="hidden md:block">
-                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{interviewer.title}</div>
-                    <div className="text-xs font-semibold">{interviewer.name}</div>
-                  </div>
-                </div>
-              </>
-            )}
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
             {inSession && (
-              <div className="hidden items-center gap-2 rounded-full border border-border bg-elevated/60 px-3 py-1 text-xs md:flex">
-                <span
-                  className={`h-2 w-2 rounded-full ${
-                    recording ? "bg-destructive recording-pulse" : 
-                    speakingDelay > 0 ? "bg-warning animate-pulse" : 
-                    "bg-muted-foreground"
-                  }`}
-                />
-                {recording ? "Recording" : speakingDelay > 0 ? `Get ready... ${speakingDelay}` : "Paused"}
-              </div>
+              <span className="hidden font-mono text-sm tabular-nums text-muted-foreground sm:block" title="Time left on this answer">
+                {formatTime(secondsLeft)}
+              </span>
             )}
-            <Link to="/dashboard">
-              <Button variant="ghost" size="sm">
-                Exit
-              </Button>
-            </Link>
+            <Link to="/dashboard"><Button variant="ghost" size="sm">Leave</Button></Link>
           </div>
         </div>
         {inSession && (
-          <div className="h-0.5 w-full bg-elevated">
-            <div
-              className="h-full bg-gradient-primary transition-all duration-300"
-              style={{ width: `${progressPct}%` }}
-            />
-          </div>
+          <ol className="mx-auto flex max-w-[1400px] gap-1 overflow-x-auto px-5 pb-3 text-[11px]">
+            {steps.map((step) => {
+              const active = interviewPhase === step.phase;
+              return (
+                <li key={step.phase} className="flex min-w-[5.5rem] flex-1 flex-col gap-1.5">
+                  <span className={`h-[3px] rounded-full ${step.completed ? "bg-foreground/70" : active ? "bg-accent" : "bg-border-strong"}`} />
+                  <span className={active ? "text-foreground" : "text-muted-foreground"}>{step.label}</span>
+                </li>
+              );
+            })}
+          </ol>
         )}
       </header>
 
       {!inSession ? (
         <ReadyView iv={iv} onStart={handleStart} loading={submitting} />
       ) : (
-        <main className="relative z-10 mx-auto grid max-w-[1500px] grid-cols-1 gap-5 px-4 py-6 lg:grid-cols-[1fr_440px] lg:px-6">
-          {/* Camera + transcription */}
-          <section className="space-y-4">
-            <div className="relative aspect-video overflow-hidden rounded-2xl border border-border bg-black shadow-elegant">
-              <video
-                ref={videoRef}
-                autoPlay
-                muted
-                playsInline
-                className="absolute inset-0 h-full w-full scale-x-[-1] object-cover"
-              />
-              <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-between p-4">
-                <div className="flex items-center gap-2 rounded-full border border-white/15 bg-black/40 px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-white backdrop-blur">
-                  <span
-                    className={`h-2 w-2 rounded-full ${
-                      recording ? "bg-destructive recording-pulse" : 
-                      speakingDelay > 0 ? "bg-warning animate-pulse" : 
-                      "bg-white/50"
-                    }`}
-                  />
-                  {recording ? "Live" : speakingDelay > 0 ? `Get ready... ${speakingDelay}` : "Standby"}
-                </div>
-                <div className="rounded-full border border-white/15 bg-black/40 px-3 py-1.5 font-mono text-xs text-white backdrop-blur">
-                  Q {questionIndex + 1} / {iv.questions.length || "…"}
-                </div>
+        <main className="mx-auto max-w-[1400px] px-4 pb-8 pt-5 lg:px-5">
+          <div className="grid gap-3 md:grid-cols-2">
+            {/* The interviewer's tile */}
+            <section className="relative grid aspect-video place-items-center overflow-hidden rounded-md bg-surface-2">
+              <div className={`grid h-28 w-28 place-items-center rounded-full bg-elevated font-display text-5xl transition-shadow duration-300 ${speaking ? "ring-2 ring-accent/70 ring-offset-4 ring-offset-surface-2" : ""}`}>
+                {interviewer.name.charAt(0)}
               </div>
-              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30" />
-              <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 p-5">
-                <div className="rounded-xl border border-white/10 bg-black/50 px-4 py-3 backdrop-blur">
-                  <div className="text-[10px] uppercase tracking-wider text-white/60">
-                    Time remaining
-                  </div>
-                  <div className="font-mono text-2xl font-semibold text-white tabular-nums">
-                    {formatTime(secondsLeft)}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button size="lg" variant="outline" onClick={() => playQuestionAudio(currentAIMessage, true)} disabled={speaking || submitting}>
-                    {speaking ? "Speaking..." : "Replay"}
-                  </Button>
-                  {!recording ? (
-                    <Button size="lg" onClick={startRecording} disabled={speaking || speakingDelay > 0 || submitting}>
-                      {speaking ? "Speaking..." : speakingDelay > 0 ? `Get ready... ${speakingDelay}` : "● Start answering"}
-                    </Button>
-                  ) : (
-                    <Button size="lg" variant="destructive" onClick={stopRecording}>
-                      Stop
-                    </Button>
-                  )}
-                  <Button size="lg" variant="secondary" onClick={() => handleNext()} loading={submitting}>
-                    {questionIndex === iv.questions.length - 1 ? "Finish ↗" : "Next →"}
-                  </Button>
-                </div>
+              <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded bg-background/70 px-2.5 py-1 text-xs">
+                <SpeakingMeter active={speaking} />
+                <span className="font-medium">{interviewer.name}</span>
+                <span className="text-muted-foreground">· {interviewer.title}</span>
               </div>
-            </div>
+            </section>
 
-            <div className="surface-card p-5">
-              <div className="mb-2 flex items-center justify-between text-xs">
-                <span className="uppercase tracking-wider text-muted-foreground">
-                  Live transcript
-                </span>
-                {submitting ? (
-                  <span className="flex items-center gap-1.5 text-muted-foreground">
-                    <span className="h-2 w-2 animate-spin rounded-full border border-current border-t-transparent" />
-                    Sending…
-                  </span>
-                ) : transcribing ? (
-                  <span className="flex items-center gap-1.5 text-blue-400 text-xs">
-                    <span className="h-2 w-2 animate-spin rounded-full border border-current border-t-transparent" />
-                    Transcribing…
-                  </span>
-                ) : (
-                  <span className="font-mono text-muted-foreground">
-                    {(transcript + interimTranscript).split(/\s+/).filter(Boolean).length} words
-                  </span>
-                )}
+            {/* Your camera */}
+            <section className="relative aspect-video overflow-hidden rounded-md bg-black">
+              <video ref={videoRef} autoPlay muted playsInline className="absolute inset-0 h-full w-full scale-x-[-1] object-cover" />
+              <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded bg-background/70 px-2.5 py-1 text-xs">
+                <span className={`h-2 w-2 rounded-full ${recording ? "bg-destructive recording-pulse" : "bg-muted-foreground"}`} />
+                <span className="font-medium">You</span>
+                {recording && <span className="text-muted-foreground">· recording</span>}
               </div>
-              <div className="min-h-[120px] rounded-lg border border-border bg-elevated/40 p-4 text-sm leading-relaxed">
+              <div className="absolute right-3 top-3 rounded bg-background/70 px-2 py-1 font-mono text-[11px] text-muted-foreground">
+                {interviewPhase === "CORE_QUESTIONS" ? `Question ${questionIndex + 1} of ${iv.questions.length || "…"}` : steps.find((s) => s.phase === interviewPhase)?.label}
+              </div>
+            </section>
+          </div>
+
+          {/* Captions: what she said, then what you are saying */}
+          <section className="mx-auto mt-6 max-w-3xl">
+            <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{interviewer.name}</p>
+            <p className="mt-2 font-display text-[1.45rem] leading-snug md:text-[1.6rem]">
+              {currentAIMessage || "…"}
+            </p>
+
+            <div className="mt-6 border-t border-border pt-4">
+              <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+                <span>You</span>
+                <span className="font-mono normal-case tracking-normal">
+                  {submitting ? "Sending…" : transcribing ? "Transcribing…" : `${words} words`}
+                </span>
+              </div>
+              <p className="mt-2 min-h-[4.5rem] text-[15px] leading-relaxed">
                 {transcript || interimTranscript ? (
                   <>
                     <span>{transcript}</span>
-                    <span className="text-muted-foreground">
-                      {interimTranscript ? " " + interimTranscript : ""}
-                    </span>
+                    <span className="text-muted-foreground">{interimTranscript ? " " + interimTranscript : ""}</span>
                   </>
                 ) : (
                   <span className="text-muted-foreground">
-                    Press <span className="text-foreground">Start answering</span> — your words will
-                    appear here as you speak. A final accurate transcript is processed when you stop.
+                    When it is your turn, press Start answering and speak. Aim for one to two minutes: the point first, then the details.
                   </span>
                 )}
-              </div>
+              </p>
             </div>
           </section>
 
-          {/* Question + steps */}
-          <aside className="space-y-4">
-            <div className="surface-card p-6">
-              <div className="flex items-start justify-between gap-3">
-                <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
-                  {interviewPhase} Phase
-                </div>
-                <span className="rounded-full border border-border bg-elevated/60 px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Exchange {exchangeCount}
-                </span>
-              </div>
-              <h2 className="mt-3 text-xl font-medium leading-snug tracking-tight">
-                {speaking && <span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-primary" />}
-                {currentAIMessage || "Listening..."}
-              </h2>
-              <div className="mt-5 rounded-lg border border-border bg-elevated/40 p-3 text-xs text-muted-foreground">
-                Tip: Aim for 60–120 seconds. Lead with structure, then specifics.
-              </div>
-            </div>
-
-            <div className="surface-card p-5">
-              <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
-                Progress
-              </div>
-              <ol className="mt-3 space-y-2">
-                {[
-                  { phase: "GREETING", description: "Welcome & introduction", completed: exchangeCount > 0 },
-                  { phase: "SMALL_TALK", description: "Get to know you", completed: exchangeCount > 3 },
-                  { phase: "AGENDA", description: "Session overview", completed: exchangeCount > 4 },
-                  { phase: "BACKGROUND", description: "Experience warmup", completed: warmupQuestionsAsked >= 2 },
-                  { phase: "CORE_QUESTIONS", description: "Main interview", completed: interviewPhase === "CLOSING" },
-                  { phase: "CLOSING", description: "Wrap up & questions", completed: false },
-                ].map((step, i) => {
-                  const active = interviewPhase === step.phase;
-                  return (
-                    <li
-                      key={step.phase}
-                      className={`flex items-start gap-3 rounded-lg border px-3 py-2 text-xs transition-colors ${
-                        active ? "border-primary/50 bg-primary/5" : "border-border bg-elevated/30"
-                      }`}
-                    >
-                      <span
-                        className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-semibold ${
-                          step.completed
-                            ? "bg-success text-background"
-                            : active
-                              ? "bg-gradient-primary text-primary-foreground"
-                              : "bg-elevated text-muted-foreground"
-                        }`}
-                      >
-                        {step.completed ? "✓" : i + 1}
-                      </span>
-                      <span
-                        className={`line-clamp-2 ${active ? "text-foreground" : "text-muted-foreground"}`}
-                      >
-                        {step.description}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ol>
-            </div>
-          </aside>
+          {/* Controls */}
+          <div className="sticky bottom-4 mx-auto mt-6 flex w-fit flex-wrap items-center justify-center gap-2 rounded-md border border-border bg-surface/95 p-2 shadow-sheet">
+            <span className="px-2 text-xs text-muted-foreground">{status}</span>
+            <Button variant="ghost" onClick={() => playQuestionAudio(currentAIMessage, true)} disabled={speaking || submitting}>
+              Replay
+            </Button>
+            {!recording ? (
+              <Button onClick={startRecording} disabled={speaking || speakingDelay > 0 || submitting}>
+                Start answering
+              </Button>
+            ) : (
+              <Button variant="destructive" onClick={stopRecording}>Stop</Button>
+            )}
+            <Button variant="secondary" onClick={() => handleNext()} loading={submitting}>
+              {questionIndex === iv.questions.length - 1 ? "Finish" : "Next"}
+            </Button>
+          </div>
         </main>
       )}
     </div>
+  );
+}
+
+/** Four bars that move only while the interviewer is speaking: it shows a state, so it moves. */
+function SpeakingMeter({ active }: { active: boolean }) {
+  return (
+    <span className="flex h-3 items-end gap-[2px]" aria-hidden>
+      {[0, 1, 2, 3].map((i) => (
+        <span
+          key={i}
+          className={`w-[3px] rounded-sm bg-accent ${active ? "speaking-bar" : "h-[3px] opacity-50"}`}
+          style={active ? { animationDelay: `${i * 0.12}s` } : undefined}
+        />
+      ))}
+    </span>
   );
 }
 

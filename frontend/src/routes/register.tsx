@@ -40,7 +40,7 @@ export default function RegisterPage() {
   const strength = passwordStrength(password)
 
   return (
-    <AuthShell title="Create your workspace" subtitle="Start free. No credit card required.">
+    <AuthShell title="Create an account" subtitle="Free. Your interviews stay in your account.">
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
         <Field label="Full name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Alex Chen" error={errors.name} autoComplete="name" />
         <Field label="Work email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" error={errors.email} autoComplete="email" />

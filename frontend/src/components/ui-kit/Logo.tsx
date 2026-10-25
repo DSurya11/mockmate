@@ -1,22 +1,19 @@
 import { cn } from "@/lib/utils";
 
+/** A speech mark in an ink square, and the name set in the display serif. */
 export function Logo({ className, size = 22 }: { className?: string; size?: number }) {
   return (
-    <div className={cn("flex items-center gap-2.5", className)}>
+    <div className={cn("flex items-center gap-2", className)}>
       <div
-        className="relative grid place-items-center rounded-lg bg-gradient-primary shadow-glow"
-        style={{ width: size + 8, height: size + 8 }}
+        className="grid place-items-center rounded-[5px] bg-primary text-primary-foreground"
+        style={{ width: size + 4, height: size + 4 }}
+        aria-hidden
       >
-        <svg width={size - 4} height={size - 4} viewBox="0 0 24 24" fill="none" className="text-primary-foreground">
-          <path d="M4 14c0-4.4 3.6-8 8-8s8 3.6 8 8" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-          <circle cx="12" cy="14" r="2.2" fill="currentColor" />
-          <path d="M9 19h6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+        <svg width={size - 6} height={size - 6} viewBox="0 0 24 24" fill="none">
+          <path d="M5 6.5h14v8.5h-7l-4.5 3.5V15H5z" stroke="currentColor" strokeWidth="2.2" strokeLinejoin="round" />
         </svg>
       </div>
-      <span className="font-semibold tracking-tight text-[15px]">
-        Mock<span className="text-gradient">Mate</span>
-      </span>
+      <span className="font-display text-[17px] font-semibold tracking-tight">MockMate</span>
     </div>
   );
 }
-

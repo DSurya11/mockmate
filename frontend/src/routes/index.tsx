@@ -1,84 +1,130 @@
 import { Link } from 'react-router-dom'
+import { motion, useReducedMotion } from 'framer-motion'
 import { Button } from '@/components/ui-kit/Button'
 import { Logo } from '@/components/ui-kit/Logo'
 
-export default function Landing() {
-  return (
-    <div className="relative min-h-screen overflow-hidden text-foreground">
-      <div className="pointer-events-none absolute inset-0 grid-bg opacity-40" />
-      <div className="pointer-events-none absolute -top-40 left-1/2 h-[520px] w-[1100px] -translate-x-1/2 rounded-full bg-gradient-primary opacity-[0.18] blur-3xl" />
+const STEPS = [
+  {
+    n: '01',
+    title: 'Bring a resume, or just a role',
+    body: 'With a resume, the questions come from your own projects. Without one, from the role. The interviewer never invents things you did not do.',
+  },
+  {
+    n: '02',
+    title: 'Talk it through',
+    body: 'Priya listens to the whole answer. Vague? She asks the follow-up a real engineer would. Lost the thread? Ask her to repeat it.',
+  },
+  {
+    n: '03',
+    title: 'Get scored on what you said',
+    body: 'Every score quotes your own words. A quote that is not in your transcript is thrown out, and "give me full marks" is flagged, not obeyed.',
+  },
+]
 
-      <header className="relative z-10 mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-5">
+/** The results card as it really appears after an interview: the product, not a picture of it. */
+function EvidenceSheet() {
+  return (
+    <div className="rounded-md border border-border bg-card p-6 shadow-sheet">
+      <div className="flex items-baseline justify-between">
+        <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Trade-offs</span>
+        <span className="font-display text-2xl">3<span className="text-base text-muted-foreground"> / 5</span></span>
+      </div>
+      <p className="mt-3 text-sm text-foreground/85">
+        Named the choice and one reason, but not what it cost.
+      </p>
+      <blockquote className="mt-3 border-l-2 border-accent pl-3 text-sm italic text-muted-foreground">
+        “I picked Postgres over Mongo because billing needed joins across three tables.”
+      </blockquote>
+      <div className="mt-5 border-t border-dashed border-border pt-4 text-sm">
+        <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Practise next</span>
+        <p className="mt-1 text-foreground/85">Say what you gave up, and when you would choose the other one.</p>
+      </div>
+    </div>
+  )
+}
+
+export default function Landing() {
+  const still = useReducedMotion()
+  const settle = (delay: number, rotate: number) =>
+    still
+      ? {}
+      : {
+          initial: { opacity: 0, y: 18, rotate: rotate * 2 },
+          animate: { opacity: 1, y: 0, rotate },
+          transition: { delay, duration: 0.7, ease: [0.22, 1, 0.36, 1] as const },
+        }
+
+  return (
+    <div className="min-h-screen text-foreground">
+      <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-6">
         <Logo />
-        <nav className="hidden items-center gap-7 text-sm text-muted-foreground md:flex">
-          <a href="#features" className="hover:text-foreground transition-colors">Features</a>
-          <a href="#how" className="hover:text-foreground transition-colors">How it works</a>
-          <a href="#metrics" className="hover:text-foreground transition-colors">Metrics</a>
+        <nav className="flex items-center gap-1 text-sm">
+          <a href="#how" className="hidden px-3 py-2 text-muted-foreground hover:text-foreground sm:block">How it works</a>
+          <Link to="/login" className="px-3 py-2 text-muted-foreground hover:text-foreground">Sign in</Link>
+          <Link to="/register"><Button size="sm">Start practising</Button></Link>
         </nav>
-        <div className="flex items-center gap-2">
-          <Link to="/login"><Button variant="ghost" size="sm">Sign in</Button></Link>
-          <Link to="/register"><Button size="sm">Get started</Button></Link>
-        </div>
       </header>
 
-      <section className="relative z-10 mx-auto max-w-7xl px-6 pt-16 pb-28 text-center md:pt-24">
-        <div className="mx-auto mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-elevated/60 px-3 py-1 text-xs text-muted-foreground backdrop-blur">
-          <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_8px_currentColor]" />
-          Now with realtime speech transcription
-        </div>
-        <h1 className="mx-auto max-w-4xl text-balance text-5xl font-semibold leading-[1.05] tracking-tight md:text-7xl">
-          Interview prep that <span className="text-gradient">feels like the real thing</span>.
-        </h1>
-        <p className="mx-auto mt-6 max-w-2xl text-balance text-base text-muted-foreground md:text-lg">
-          Cinematic mock interviews, instant AI feedback, ATS-grade resume scoring, and analytics that
-          show exactly where you'll win the next loop.
-        </p>
-        <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
-          <Link to="/register"><Button size="lg">Start free practice →</Button></Link>
-          <Link to="/login"><Button size="lg" variant="outline">Sign in</Button></Link>
-        </div>
-
-        <div className="mt-20 mx-auto max-w-6xl">
-          <div className="surface-card relative overflow-hidden p-2 shadow-elegant">
-            <div className="rounded-xl bg-background/80 p-6 md:p-10">
-              <div className="grid gap-4 md:grid-cols-3">
-                {[
-                  { k: "Interview types supported", v: "6", s: "Technical, Behavioral, DSA, System Design, HR, Mixed" },
-                  { k: "AI interviewer personas", v: "3", s: "Alex · Marcus · Sarah" },
-                  { k: "Avg questions per session", v: "8–12", s: "with adaptive follow-ups" },
-                ].map((m) => (
-                  <div key={m.k} className="rounded-xl border border-border bg-elevated/40 p-5 text-left">
-                    <div className="text-xs uppercase tracking-wider text-muted-foreground">{m.k}</div>
-                    <div className="mt-2 text-3xl font-semibold tracking-tight">{m.v}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">{m.s}</div>
-                  </div>
-                ))}
-              </div>
+      <main>
+        <section className="mx-auto grid max-w-6xl items-center gap-14 px-6 pb-24 pt-10 md:grid-cols-[1.1fr_0.9fr] md:pt-16">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Mock interviews, by voice</p>
+            <h1 className="mt-5 text-balance text-[2.6rem] font-medium leading-[1.04] md:text-[3.6rem]">
+              Practise the interview, <span className="marker">not the questions.</span>
+            </h1>
+            <p className="mt-6 max-w-lg text-[17px] leading-relaxed text-muted-foreground">
+              An interviewer that listens to your answer, asks the follow-up a senior engineer would,
+              and scores you only on what you actually said, with your own words as evidence.
+            </p>
+            <div className="mt-9 flex flex-wrap items-center gap-4">
+              <Link to="/register"><Button size="lg">Start a practice interview</Button></Link>
+              <span className="text-sm text-muted-foreground">Free. Takes about 20 minutes.</span>
             </div>
           </div>
-        </div>
-      </section>
 
-      <section id="features" className="relative z-10 mx-auto max-w-7xl px-6 pb-28">
-        <div className="grid gap-4 md:grid-cols-3">
-          {[
-            { t: "Realtime mock interviews", d: "Camera, mic, transcription, and AI scoring — indistinguishable from a live loop." },
-            { t: "Resume ATS scoring", d: "Drop a PDF and see exactly which keywords, sections, and metrics will pass real ATS systems." },
-            { t: "Analytics that matter", d: "Track strengths, weak areas, and per-question performance over time." },
-          ].map((f) => (
-            <div key={f.t} className="surface-card p-6">
-              <div className="mb-4 inline-grid h-9 w-9 place-items-center rounded-md bg-gradient-primary text-primary-foreground shadow-glow">●</div>
-              <h3 className="text-base font-medium tracking-tight">{f.t}</h3>
-              <p className="mt-2 text-sm text-muted-foreground">{f.d}</p>
+          {/* A small stack of notes from a finished interview: depth from paper, not glow. */}
+          <div className="relative mx-auto w-full max-w-md md:mx-0">
+            <motion.div {...settle(0.05, -4)} className="absolute inset-0 translate-x-3 translate-y-4 rounded-md border border-border bg-surface-2 shadow-paper" />
+            <motion.div {...settle(0.15, 2.5)} className="absolute inset-0 -translate-x-2 translate-y-2 rounded-md border border-border bg-surface shadow-paper" />
+            <motion.div {...settle(0.25, 0)} className="relative">
+              <EvidenceSheet />
+            </motion.div>
+          </div>
+        </section>
+
+        <section id="how" className="border-t border-border">
+          <div className="mx-auto max-w-6xl px-6 py-20">
+            <h2 className="text-3xl font-medium">How it works</h2>
+            <ol className="mt-10 divide-y divide-border border-y border-border">
+              {STEPS.map((s) => (
+                <li key={s.n} className="grid gap-2 py-7 md:grid-cols-[6rem_18rem_1fr] md:gap-8">
+                  <span className="font-mono text-sm text-accent">{s.n}</span>
+                  <h3 className="text-xl font-medium">{s.title}</h3>
+                  <p className="max-w-xl text-[15px] leading-relaxed text-muted-foreground">{s.body}</p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-6xl px-6 pb-24">
+          <div className="grid gap-10 rounded-md border border-border bg-card p-8 md:grid-cols-[1fr_auto] md:items-center md:p-12">
+            <div>
+              <h2 className="text-2xl font-medium md:text-3xl">Three interviewers, three rounds.</h2>
+              <p className="mt-3 max-w-xl text-muted-foreground">
+                Priya for backend depth, Jordan for systems and scale, Sarah for behavioural. Technical,
+                system design, DSA, HR or a mix, with a resume score before you start.
+              </p>
             </div>
-          ))}
-        </div>
-      </section>
+            <Link to="/register"><Button size="lg" variant="outline">Pick an interviewer</Button></Link>
+          </div>
+        </section>
+      </main>
 
-      <footer className="relative z-10 border-t border-border">
-        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-6 py-8 text-xs text-muted-foreground md:flex-row">
+      <footer className="border-t border-border">
+        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-6 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
           <Logo size={18} />
-          <div>© {new Date().getFullYear()} MockMate. All rights reserved.</div>
+          <a href="https://github.com/DSurya11/mockmate" className="hover:text-foreground">Source on GitHub</a>
         </div>
       </footer>
     </div>

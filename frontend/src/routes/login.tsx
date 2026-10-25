@@ -57,40 +57,34 @@ export default function LoginPage() {
 
 export function AuthShell({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   return (
-    <div className="relative min-h-screen overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 grid-bg opacity-40" />
-      <div className="pointer-events-none absolute -top-32 left-1/2 h-[460px] w-[860px] -translate-x-1/2 rounded-full bg-gradient-primary opacity-20 blur-3xl" />
-
-      <header className="relative z-10 mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
+    <div className="min-h-screen">
+      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
         <Link to="/"><Logo /></Link>
-        <Link to="/" className="text-xs text-muted-foreground hover:text-foreground transition-colors">← Back to home</Link>
+        <Link to="/" className="text-sm text-muted-foreground hover:text-foreground">Back to home</Link>
       </header>
 
-      <main className="relative z-10 mx-auto grid max-w-7xl grid-cols-1 items-center gap-12 px-6 pb-12 pt-8 md:grid-cols-2 md:gap-20 md:pt-16">
+      <main className="mx-auto grid max-w-6xl grid-cols-1 items-start gap-12 px-6 pb-16 pt-6 md:grid-cols-[1fr_26rem] md:gap-20 md:pt-14">
         <div className="hidden md:block">
-          <h2 className="text-balance text-5xl font-semibold leading-[1.05] tracking-tight">
-            Practice that <span className="text-gradient">feels like the real loop.</span>
+          <h2 className="max-w-md text-balance text-[2.6rem] font-medium leading-[1.06]">
+            Twenty minutes, one interviewer, <span className="marker">honest feedback.</span>
           </h2>
-          <p className="mt-5 max-w-md text-sm text-muted-foreground">
-            Realistic AI interviewers, ATS-grade resume insights, and cinematic analytics — all in one workspace.
-          </p>
-          <div className="mt-10 flex flex-col gap-3">
+          <dl className="mt-10 max-w-md divide-y divide-border border-y border-border text-sm">
             {[
-              'Voice + camera mock interviews',
-              'Per-question scoring and transcripts',
-              'Trends over weeks, not just sessions',
-            ].map((t) => (
-              <div key={t} className="flex items-center gap-3 text-sm text-foreground/80">
-                <span className="grid h-6 w-6 place-items-center rounded-md bg-elevated border border-border">✓</span>
-                {t}
+              ['Voice', 'You speak, she listens, follows up, or repeats.'],
+              ['Scoring', 'Each score quotes your own words.'],
+              ['History', 'Every interview and transcript, kept.'],
+            ].map(([k, v]) => (
+              <div key={k} className="grid grid-cols-[6rem_1fr] gap-4 py-3.5">
+                <dt className="text-muted-foreground">{k}</dt>
+                <dd className="text-foreground/85">{v}</dd>
               </div>
             ))}
-          </div>
+          </dl>
         </div>
 
-        <div className="surface-card relative w-full p-7 shadow-elegant md:p-9">
+        <div className="w-full rounded-md border border-border bg-card p-7 shadow-sheet md:p-8">
           <div className="mb-6">
-            <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+            <h1 className="text-2xl font-medium">{title}</h1>
             <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
           </div>
           {children}
