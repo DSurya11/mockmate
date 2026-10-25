@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { callAiService } from '../config/aiService';
 import multer from 'multer';
 import { authenticate } from '../middleware/auth';
 import { config } from '../config';
@@ -42,12 +43,10 @@ router.post('/', authenticate, upload.single('file'), async (req: Request, res: 
       req.file.originalname || 'recording.wav'
     );
 
-    const aiServiceUrl = config.aiService.url;
-    const response = await fetch(`${aiServiceUrl}/api/transcribe/`, {
+    const response = await callAiService('/api/transcribe/', {
       method: 'POST',
       body: formData,
       credentials: 'include',
-      signal: AbortSignal.timeout(30_000), // 30 s — allows Whisper base model first-run download
     });
 
     const data = await response.json().catch(() => ({}));
