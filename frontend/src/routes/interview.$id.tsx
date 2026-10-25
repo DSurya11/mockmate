@@ -226,6 +226,28 @@ export default function InterviewRoom() {
     };
   }, [id]);
 
+  // The questions are written in the background after the interview is created (about 10 s);
+  // they are first needed after the greeting and warm-up, so they are fetched quietly meanwhile.
+  const waitingForQuestions = !!iv && iv.status !== "completed" && iv.questions.length === 0;
+  useEffect(() => {
+    if (!waitingForQuestions) return;
+    let tries = 0;
+    const timer = setInterval(async () => {
+      tries += 1;
+      try {
+        const latest = await api.getInterview(id);
+        if (latest.questions.length > 0) {
+          setIv((current) => (current ? { ...current, questions: latest.questions } : latest));
+          clearInterval(timer);
+        }
+      } catch {
+        // a missed poll is retried on the next tick
+      }
+      if (tries >= 60) clearInterval(timer);
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [waitingForQuestions, id]);
+
   // Load resume data to enrich the conversational interview context
   useEffect(() => {
     api.getResumes().then(resumes => {
@@ -984,7 +1006,7 @@ export default function InterviewRoom() {
                   {recording ? "Live" : speakingDelay > 0 ? `Get ready... ${speakingDelay}` : "Standby"}
                 </div>
                 <div className="rounded-full border border-white/15 bg-black/40 px-3 py-1.5 font-mono text-xs text-white backdrop-blur">
-                  Q {questionIndex + 1} / {iv.questions.length}
+                  Q {questionIndex + 1} / {iv.questions.length || "…"}
                 </div>
               </div>
               <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30" />
@@ -1150,8 +1172,10 @@ function ReadyView({
           {iv.jobRole}
         </h1>
         <p className="mx-auto mt-3 max-w-md text-sm text-muted-foreground">
-          {iv.questions.length} questions · ~{Math.round(iv.questions.length * 2.5)} minutes. We'll
-          request access to your camera and microphone when you start.
+          {iv.questions.length > 0
+            ? `${iv.questions.length} questions · ~${Math.round(iv.questions.length * 2.5)} minutes.`
+            : "Your questions are being prepared while you get started."}{" "}
+          We'll request access to your camera and microphone when you start.
         </p>
         <div className="mt-8 grid grid-cols-3 gap-3 text-left">
           {[
