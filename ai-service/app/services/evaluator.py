@@ -12,7 +12,7 @@ import json
 import logging
 import re
 
-from app.services import llm
+from app.services import llm, metrics
 
 logger = logging.getLogger(__name__)
 
@@ -131,9 +131,11 @@ def verify(result: dict, candidate_text: str, dimensions: list[str]) -> tuple[li
 async def evaluate(history: list[dict], job_role: str, interview_type: str) -> dict:
     dimensions = RUBRICS.get((interview_type or "").upper(), RUBRICS["TECHNICAL"])
     lines, flagged = _candidate_lines(history)
+    metrics.MANIPULATION.inc(flagged)
     history = _cleaned(history)[0]
     candidate = "\n".join(lines)
     if len(candidate.split()) < MIN_CANDIDATE_WORDS:
+        metrics.EVALUATOR_RUNS.labels("not_enough_to_assess").inc()
         return {"overallScore": None, "scoredExchanges": 0, "status": "not_enough_to_assess",
                 "dimensions": [], "strengths": [], "gaps": [], "practice": [],
                 "verification": {"quotes_kept": 0, "quotes_rejected": 0, "attempts": 0,
@@ -160,6 +162,9 @@ async def evaluate(history: list[dict], job_role: str, interview_type: str) -> d
             continue
         break
     scored = [d["score"] for d in checked if d["score"] is not None]
+    metrics.EVALUATOR_QUOTES.labels("kept").inc(kept)
+    metrics.EVALUATOR_QUOTES.labels("rejected").inc(len(rejected))
+    metrics.EVALUATOR_RUNS.labels("scored" if scored else "no_evidence").inc()
     overall = round(sum(scored) / len(scored) * 20, 1) if scored else None
     return {
         "overallScore": overall,

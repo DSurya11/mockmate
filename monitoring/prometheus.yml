@@ -15,6 +15,14 @@ scrape_configs:
     metrics_path: '/metrics'
     scrape_interval: 10s
 
+  # The AI service's agents: model calls by provider and outcome, interviewer actions, voice
+  # engines, transcriptions, evaluator quotes kept/rejected, manipulation attempts.
+  - job_name: 'ai-service'
+    static_configs:
+      - targets: ['ai-service:8000']
+    metrics_path: '/metrics/'
+    scrape_interval: 15s
+
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']

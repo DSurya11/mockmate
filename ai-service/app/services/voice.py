@@ -31,7 +31,7 @@ import httpx
 import lameenc
 from gtts import gTTS
 
-from app.services import llm
+from app.services import llm, metrics
 
 logger = logging.getLogger(__name__)
 
@@ -231,13 +231,16 @@ async def speak(text: str, voice: str = DEFAULT_VOICE) -> tuple[bytes, str, str]
             try:
                 audio, media_type = await ENGINES[engine](client, text, voices.get(engine, ""))
                 if audio:
+                    metrics.VOICE_LINES.labels(engine).inc()
                     return audio, media_type, engine
                 failures.append(f"{engine}: empty audio")
             except _Refused as error:
                 if engine != "orpheus":                 # orpheus rests per key, inside
                     _resting[engine] = time.monotonic() + error.rest
                 failures.append(str(error))
+                metrics.VOICE_FALLBACKS.labels(engine, "refused").inc()
             except Exception as error:                  # timeouts, outages: next engine, no rest
                 failures.append(f"{engine}: {type(error).__name__}")
+                metrics.VOICE_FALLBACKS.labels(engine, "failed").inc()
             logger.warning("Voice fallback: %s", failures[-1])
     raise VoiceUnavailable("; ".join(failures))

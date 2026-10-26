@@ -29,6 +29,8 @@ from openai import (
     AsyncOpenAI,
 )
 
+from app.services import metrics
+
 logger = logging.getLogger(__name__)
 
 PROVIDERS = {
@@ -139,6 +141,7 @@ async def complete(messages: list[dict], max_tokens: int = 1000, temperature: fl
         if "gpt-oss" in model:
             extra["reasoning_effort"] = "low"
             limit = max_tokens + REASONING_HEADROOM
+        call_started = time.monotonic()
         try:
             response = await asyncio.wait_for(
                 _client(provider, number).chat.completions.create(
@@ -150,13 +153,18 @@ async def complete(messages: list[dict], max_tokens: int = 1000, temperature: fl
             if not text:
                 raise _EmptyReply(f"finish_reason={response.choices[0].finish_reason}")
             logger.info("LLM reply from %s", label)
+            metrics.LLM_CALLS.labels(provider, model, "ok").inc()
+            metrics.LLM_SECONDS.labels(provider).observe(time.monotonic() - call_started)
             return text
         except (asyncio.TimeoutError, APITimeoutError, APIConnectionError, _EmptyReply) as error:
             failures.append(f"{label} {type(error).__name__}")
+            metrics.LLM_CALLS.labels(provider, model, "empty" if isinstance(error, _EmptyReply) else "timeout").inc()
         except APIStatusError as error:
             # 429 rate limit, 5xx outage, 404 retired model, 400 unsupported parameter:
             # all mean "this one cannot answer now", so the next one is tried.
             failures.append(f"{label} HTTP {error.status_code}")
+            metrics.LLM_CALLS.labels(provider, model, {429: "rate_limited", 401: "refused", 403: "refused",
+                                                       404: "not_found"}.get(error.status_code, "error")).inc()
             now = time.monotonic()
             if error.status_code == 429:
                 _resting[(provider, number, model)] = now + _retry_after(error)

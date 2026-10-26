@@ -18,8 +18,9 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 
-from app.services import llm
+from app.services import llm, metrics
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,7 @@ def _prompt(request, asked: str, upcoming: str | None) -> list[dict]:
 
 
 async def decide(request) -> dict:
+    started = time.monotonic()
     questions = request.generated_questions or []
     asked = questions[request.question_index - 1] if request.question_index - 1 < len(questions) else ""
     upcoming = questions[request.question_index] if request.question_index < len(questions) else None
@@ -119,5 +121,7 @@ async def decide(request) -> dict:
     else:
         say = f"{ack} {question}"
     logger.info("Interviewer action: %s", action)
+    metrics.INTERVIEWER_ACTIONS.labels(action).inc()
+    metrics.INTERVIEWER_SECONDS.observe(time.monotonic() - started)
     return {"response": re.sub(r"\s+", " ", say).strip(), "phase": request.phase, "nextPhase": None,
             "action": action, "advance": action == "next"}
