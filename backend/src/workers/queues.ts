@@ -1,6 +1,6 @@
 import { Worker, Job } from 'bullmq';
 import prisma from '../config/database';
-import { config } from '../config';
+import { callAiService } from '../config/aiService';
 import logger from '../config/logger';
 import { downloadFromSupabase } from '../config/supabaseStorage';
 import {
@@ -19,15 +19,6 @@ function isFinalFailure(job: Job) {
   return job.attemptsMade >= attempts;
 }
 
-async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // Resume Analysis Worker
 const resumeWorker = new Worker('resume-analysis', async (job: Job) => {
@@ -43,10 +34,11 @@ const resumeWorker = new Worker('resume-analysis', async (job: Job) => {
     const formData = new FormData();
     formData.append('file', new Blob([new Uint8Array(fileBuffer)], { type: 'application/pdf' }), resume.fileName);
 
-    const response = await fetchWithTimeout(
-      `${config.aiService.url}/api/resume/upload-analyze`,
+    // Waits for a sleeping AI service like the interview does (it used to give up after 6 s).
+    const response = await callAiService(
+      '/api/resume/upload-analyze',
       { method: 'POST', body: formData },
-      aiTimeoutMs,
+      aiTimeoutMs * 2,
     );
 
     if (!response.ok) {
@@ -88,8 +80,8 @@ const evaluationWorker = new Worker('answer-evaluation', async (job: Job) => {
   logger.info({ jobId: job.id, answerId: job.data.answerId }, 'Processing answer evaluation');
 
   try {
-    const response = await fetchWithTimeout(
-      `${config.aiService.url}/api/evaluate/answer`,
+    const response = await callAiService(
+      '/api/evaluate/answer',
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -194,7 +186,7 @@ const reportWorker = new Worker('report-generation', async (job: Job) => {
     // rate-limited at that moment the interview has no score: score it here, and throw on
     // failure so BullMQ tries again later (the backoff spans the providers' per-minute limits).
     if (report.evaluation === null && report.conversationHistory.length > 0) {
-      const res = await fetchWithTimeout(`${config.aiService.url}/api/interview/evaluate-conversation`, {
+      const res = await callAiService('/api/interview/evaluate-conversation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
