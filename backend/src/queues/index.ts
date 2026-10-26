@@ -17,10 +17,20 @@ export const reportQueue = new Queue('report-generation', { connection: redisCon
 export const deadLetterQueue = new Queue('dead-letter', { connection: redisConnection });
 
 export async function addResumeJob(data: { resumeId: string; fileUrl: string; fileName: string }) {
+  const jobId = `resume-${data.resumeId}`;
+  // BullMQ ignores an add() whose jobId already exists, and a failed job is kept (removeOnFail),
+  // so Retry on a failed analysis used to do nothing. A finished job is removed first; one that is
+  // still waiting or running is left alone (the add below is then a no-op, as intended).
+  const previous = await resumeQueue.getJob(jobId);
+  if (previous && ((await previous.isFailed()) || (await previous.isCompleted()))) {
+    await previous.remove();
+  }
   return resumeQueue.add('analyze', data, {
-    jobId: `resume-${data.resumeId}`,
-    attempts: 3,
-    backoff: { type: 'exponential', delay: 2000 },
+    jobId,
+    // The AI service itself is waited for inside each attempt (callAiService); these attempts
+    // cover longer outages: 20 s, 40 s, 80 s, 160 s apart.
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 20000 },
     removeOnComplete: 100,
     removeOnFail: 50,
   });

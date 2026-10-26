@@ -9,10 +9,13 @@ import logger from './logger';
  * gave up on a request that hung past its own timeout, and the interview page showed
  * "could not reply". Now all of those are retried until a 100 s deadline. Any other answer,
  * including 4xx and 500, is returned to the caller as before.
+ * 429 counts as waking too: resume analysis got a plain-text "Too Many Requests" (not from our
+ * code: the AI service has no rate limiter, and it reports a model's rate limit as 502) three
+ * times in 6 s on 2026-10-26, while the same file analysed in 7.5 s once the service was up.
  */
 const DEADLINE_MS = 100_000;
 const PAUSE_MS = [2000, 4000, 8000];
-const WAKING = new Set([502, 503, 504]);
+const WAKING = new Set([429, 502, 503, 504]);
 
 export async function callAiService(path: string, init: RequestInit, timeoutMs = 60_000): Promise<Response> {
   const url = `${config.aiService.url}${path}`;

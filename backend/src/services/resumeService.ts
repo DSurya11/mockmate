@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import logger from '../config/logger';
 import { uploadToSupabase, deleteFromSupabase } from '../config/supabaseStorage';
@@ -74,6 +75,9 @@ export class ResumeService {
     if (user && user.role !== 'ADMIN' && resume.userId !== user.id) {
       throw Object.assign(new Error('Access denied'), { status: 403 });
     }
+
+    // Clear the last failure, so the page shows "analysing" again instead of "Failed".
+    await prisma.resume.update({ where: { id: resume.id }, data: { aiFeedback: Prisma.DbNull, atsScore: null } });
 
     // Enqueue via BullMQ — file lives in Supabase, worker fetches it via URL
     await addResumeJob({
