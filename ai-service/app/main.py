@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from prometheus_client import make_asgi_app
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
@@ -26,6 +27,10 @@ app.include_router(evaluate_router, prefix="/api/evaluate", tags=["Evaluation"])
 app.include_router(interview_router, prefix="/api/interview", tags=["Interview"])
 app.include_router(tts.router, prefix="/api")
 app.include_router(transcription.router, prefix="/api")
+
+
+# Agent metrics for Prometheus/Grafana: counts and timings only, never interview text.
+app.mount("/metrics", make_asgi_app())
 
 
 @app.get("/health")

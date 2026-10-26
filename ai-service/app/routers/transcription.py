@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from typing import Optional
 from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
 
-from app.services import llm
+from app.services import llm, metrics
 
 class TranscriptionResponse(BaseModel):
     text: str
@@ -100,10 +100,12 @@ async def transcribe_audio(file: UploadFile = File(...)):
         filename = file.filename or "audio.webm"
         logging.info(f"Transcribing via Groq Whisper: {filename} ({len(content)} bytes)")
         text = await whisper(filename, content)
+        metrics.TRANSCRIPTIONS.labels("text" if text else "silence").inc()
         logging.info(f"Groq transcription complete: '{text[:80]}'")
         return TranscriptionResponse(text=text, language="en", duration=None)
 
     except Exception as e:
         logging.error(f"Groq transcription error: {e}", exc_info=True)
+        metrics.TRANSCRIPTIONS.labels("failed").inc()
         # Return empty transcript so the interview can continue unblocked
         return TranscriptionResponse(text="", language="en", duration=0.0)

@@ -55,7 +55,11 @@ PostgreSQL     Queue jobs
 | What gets scored | — | the conversation the server recorded turn by turn, never a transcript sent by the browser |
 | Testing it (`ai-service/simulate.py`) | — | scripted candidates (strong, weak, "repeat that", prompt injection, off-topic) run whole interviews against the real models; code checks every turn and that strong beats weak and injection changes nothing |
 | Voice (`ai-service/app/services/voice.py`) | — | the most natural free engine that can answer now: Groq Orpheus → Deepgram Aura-2 → MeloTTS (Cloudflare Workers AI) → Google Translate's voice; an engine over its daily limit rests; text is cut only at sentence ends, and the page plays the first sentence while the rest are made |
-| Outages (`ai-service/app/services/llm.py`) | — | rate limits, timeouts and empty replies move to the next free provider; with all of them down the interview continues on scripted lines, and the report worker scores it later (retries 20 s to 160 s apart) |
+| Outages (`ai-service/app/services/llm.py`) | — | several keys per provider (`GROQ_API_KEY=key1,key2`): every key is tried on the best model before the next model; rate limits, timeouts and empty replies move on; with all of them down the interview continues on scripted lines, and the report worker scores it later (retries 20 s to 160 s apart) |
+| The flow (`frontend/src/routes/interview.$id.tsx`) | — | the switch to the main questions always asks prepared question 1; the wrap-up starts after the last answer; the registered name is passed in; if it is missing she asks for it once and never again |
+| Answers | — | sent after 5 s of quiet once you have spoken (a countdown shows; speaking cancels it; Hold on and I'm done are there too); live words while speaking (Firefox/Safari: short pieces to Whisper); silence is measured and never sent (Whisper turns it into "Thank you."); an answer that cannot be transcribed is kept for Try again, never dropped |
+| A sleeping free server (Render) | — | pages ping the services every 5 min while someone is active; the backend waits up to 100 s for a waking AI service; the page says "<interviewer> is joining…" and offers Try again |
+| Watching it (`ai-service/app/services/metrics.py`) | — | Prometheus counts at `/metrics/` (model calls by provider and outcome, interviewer actions, voice engine, transcriptions, evaluator quotes kept/rejected, manipulation attempts; never interview text); Grafana dashboard "MockMate agents" is provisioned |
 
 ## 🚀 Tech Stack
 
@@ -127,7 +131,7 @@ docker compose up --build -d
 - **Frontend UI:** `http://localhost:3000`
 - **Backend API:** `http://localhost:5000`
 - **AI Service:** `http://localhost:8000`
-- **Grafana:** `http://localhost:3001` (admin / admin)
+- **Grafana:** `http://localhost:3001` (admin / admin): the "MockMate agents" dashboard shows the AI service's agents
 - **Prometheus:** `http://localhost:9090`
 
 #### Troubleshooting Docker Setup
