@@ -33,6 +33,10 @@ app.include_router(transcription.router, prefix="/api")
 app.mount("/metrics", make_asgi_app())
 
 
+@app.get("/")
+async def root():
+    return {"status": "ok", "service": "ai-interview-ai-service"}
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "ai-interview-ai-service"}
