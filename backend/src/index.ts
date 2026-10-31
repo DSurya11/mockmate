@@ -12,6 +12,7 @@ import client from 'prom-client';
 
 import { config } from './config';
 import logger from './config/logger';
+import prisma from './config/database';
 import { errorHandler, notFound } from './middleware/errorHandler';
 import { apiLimiter } from './middleware/rateLimiter';
 import { setupSocketHandlers } from './socket/handler';
@@ -124,6 +125,8 @@ app.get('/api/health', (req, res) => {
 app.get('/api/health/wake', (req, res) => {
   const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://mockmate-ai:8000';
   fetch(`${aiServiceUrl}/health`).catch(() => undefined);
+  // Ping the DB to prevent Supabase from pausing due to inactivity
+  prisma.$queryRawUnsafe('SELECT 1').catch(() => undefined);
   res.json({ status: 'waking' });
 });
 
